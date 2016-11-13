@@ -2,74 +2,130 @@
   Program:      power_measure
 
   Description:  Calculates and displays instantaneous voltage,
-                current, and power on an LCD, with a refresh
-                rate of 1Hz. Voltage calculated based on reading
-                from a voltage divider on analog input 2,
-                current calculated based on reading from current
-                sense amplifier on analog input 3, power
-                calculated based on voltage and current
-                measurements.
+                current, and power on an LCD, refreshing at < 
+                1Hz. Voltage calculated based on reading from a 
+                voltage divider on analog input 0, current 
+                calculated based on reading from current sense 
+                amplifier on analog input 1, power calculated 
+                based on voltage and current measurements.
 
-  Date:         7 November 2016
+  Date:         12 November 2016
 
   Authors:      Christain Knight, Michael Shea
 --------------------------------------------------------------*/
 
-// number of analog samples to take per reading
-#define NUM_SAMPLES 50
+// include LCD library and initialize the interface pins
+#include <LiquidCrystal.h>
+LiquidCrystal lcd(12,11,5,4,3,2);
 
-int sum1 = 0;                    // sum of samples taken
-int sum2 = 0;                    // sum of samples taken
+#define NUM_SAMPLES 100  // number of analog samples to take per reading
 
-unsigned char sample_count = 0; // current sample number
-float voltage = 0.0;            // calculated voltage
-float current = 0.0;            // calculated current
+float sumVoltage = 0;   // sum of samples taken for voltage measurement
+float sumCurrent = 0;   // sum of samples taken for current measurement
+
+unsigned char sample_count = 0;   // current sample number
+float voltage = 0.0;              // calculated voltage
+float current = 0.0;              // calculated current
 
 // setup routine runs once upon startup/reset:
 void setup()  {
-  // initialize serial communication at 9600 bits per second
-  Serial.begin(9600);
+  Serial.begin(9600); // initialize serial communication at 9600 bits per second
+  lcd.begin(20,4);    // set up the LCD's number of columns and rows
 }
 
 void loop()
 {
   // take a number of analog samples and add them up
   while (sample_count < NUM_SAMPLES) {
-    sum1 += analogRead(A2);
-    sum2 += analogRead(A3);
+    sumVoltage += analogRead(A0);
+    sumCurrent += analogRead(A1);
     sample_count++;
-    delay(50);
+    delay(10);
   }
 
-  voltage = ((float)sum1 / (float)NUM_SAMPLES * 4.922) / 1023;
-  current = ((float)sum2 / (float)NUM_SAMPLES * 4.922) / 1023;
+  // calculate voltage and current from analog samples
+  voltage = ((float)sumVoltage / (float)NUM_SAMPLES * 5) / 1023;
+  current = ((float)sumCurrent / (float)NUM_SAMPLES * 5) / 1023;
 
-  if ((voltage * 6) < 0) {
-    Serial.println("Vin = ");
-    Serial.print(0.00);
-    Serial.println(" V");
+  // print to LCD 
+  lcd.clear();
+  if ((voltage * 6) > 0) {
+    lcd.setCursor(0,1);
+    lcd.print("V = ");
+    lcd.print(voltage * 6);
+    lcd.print(" V");
+  }
+  else {
+    lcd.setCursor(0,1);
+    lcd.print("V = ");
+    lcd.print(0.00);
+    lcd.print(" V");
+    lcd.setCursor(0,2);
+    lcd.print("I = ");
+    lcd.print(0.00);
+    lcd.print(" A");
+    lcd.setCursor(0,3);
+    lcd.print("P = ");
+    lcd.print(0.00);
+    lcd.print(" W");
+  }
+  if (((current - 2.496) * 5) > 0) {
+    lcd.setCursor(0,2);
+    lcd.print("I = ");
+    lcd.print((current - 2.496) * 5);
+    lcd.print(" A");
+    lcd.setCursor(0,3);
+    lcd.print("P = ");
+    lcd.print(((current - 2.496) * 5) * (voltage * 6));
+    lcd.print(" W");
+  }
+  else {
+    lcd.setCursor(0,2);
+    lcd.print("I = ");
+    lcd.print(0.00);
+    lcd.print(" A");
+    lcd.setCursor(0,3);
+    lcd.print("P = ");
+    lcd.print(0.00);
+    lcd.print(" W");
   }
 
-  if (((current - 2.48) * 5) < 0) {
-    Serial.println("Iin = ");
-    Serial.print(0.00);
-    Serial.println(" A");
-    Serial.println("Pin = ");
-    Serial.print(0.00);
-    Serial.println(" W");
-  }
+  // print to Serial Monitor  
+//  if ((voltage * 6) > 0) {
+//    Serial.println("V = ");
+//    Serial.println(voltage * 6);
+//    Serial.println(" V");
+//  }
+//  else {
+//    Serial.println("V = ");
+//    Serial.println(0.00);
+//    Serial.println(" V");
+//    Serial.println("I = ");
+//    Serial.println(0.00);
+//    Serial.println(" A");
+//    Serial.println("P = ");
+//    Serial.println(0.00);
+//    Serial.println(" W");
+//  }
+//  if (((current - 2.496) * 5) > 0) {
+//    Serial.println("I = ");
+//    Serial.println((current - 2.496) * 5);
+//    Serial.println(" A");
+//    Serial.println("P = ");
+//    Serial.println(((current - 2.496) * 5) * (voltage * 6));
+//    Serial.println(" W");
+//  }
+//  else {
+//    Serial.println("I = ");
+//    Serial.println(0.00);
+//    Serial.println(" A");
+//    Serial.println("P = ");
+//    Serial.println(0.00);
+//    Serial.println(" W");
+//  }
 
-  Serial.println("Vin = ");
-  Serial.print(voltage * 6);
-  Serial.println(" V");
-  Serial.println("Iin = ");
-  Serial.print((current - 2.488) * 5);
-  Serial.println(" A");
-  Serial.println("Pin = ");
-  Serial.print(((current - 2.488) * 5) * (voltage * 6));
-  Serial.println(" W");
-
+  // reset sample count and analog samples
   sample_count = 0;
-  sum1 = 0;
-  sum2 = 0;
+  sumVoltage = 0;
+  sumCurrent = 0;
 }
