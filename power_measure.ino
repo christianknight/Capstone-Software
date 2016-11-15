@@ -23,6 +23,10 @@ LiquidCrystal lcd(12,11,5,4,3,2);
 float sumVoltage = 0;   // sum of samples taken for voltage measurement
 float sumCurrent = 0;   // sum of samples taken for current measurement
 
+float voltageGain = 6;
+float currentGain = 2.01;
+float currentOffset = 0.026;
+
 unsigned char sample_count = 0;   // current sample number
 float voltage = 0.0;              // calculated voltage
 float current = 0.0;              // calculated current
@@ -44,15 +48,16 @@ void loop()
   }
 
   // calculate voltage and current from analog samples
-  voltage = ((float)sumVoltage / (float)NUM_SAMPLES * 5) / 1023;
-  current = ((float)sumCurrent / (float)NUM_SAMPLES * 5) / 1023;
+  voltage = ((float)sumVoltage / (float)NUM_SAMPLES * 5.006) / 1023;
+  current = ((float)sumCurrent / (float)NUM_SAMPLES * 5.006) / 1023;
 
   // print to LCD 
   lcd.clear();
-  if ((voltage * 6) > 0) {
+  lcd.print("POWAH:");
+  if (voltage * voltageGain > 3.6) {
     lcd.setCursor(0,1);
     lcd.print("V = ");
-    lcd.print(voltage * 6);
+    lcd.print(voltage * voltageGain);
     lcd.print(" V");
   }
   else {
@@ -69,14 +74,24 @@ void loop()
     lcd.print(0.00);
     lcd.print(" W");
   }
-  if (((current - 2.496) * 5) > 0) {
+  if ((current * currentGain - currentOffset) > 1) {
     lcd.setCursor(0,2);
     lcd.print("I = ");
-    lcd.print((current - 2.496) * 5);
+    lcd.print(current * currentGain);
     lcd.print(" A");
     lcd.setCursor(0,3);
     lcd.print("P = ");
-    lcd.print(((current - 2.496) * 5) * (voltage * 6));
+    lcd.print((current * currentGain - currentOffset) * voltage * voltageGain);
+    lcd.print(" W");
+  }
+  else if (current * currentGain - currentOffset > 0.005 && current * currentGain - currentOffset < 1) {
+    lcd.setCursor(0,2);
+    lcd.print("I = ");
+    lcd.print((current * currentGain - currentOffset) * 1e3);
+    lcd.print(" mA");
+    lcd.setCursor(0,3);
+    lcd.print("P = ");
+    lcd.print((current * currentGain - currentOffset) * voltage * voltageGain);
     lcd.print(" W");
   }
   else {
@@ -89,40 +104,6 @@ void loop()
     lcd.print(0.00);
     lcd.print(" W");
   }
-
-  // print to Serial Monitor  
-//  if ((voltage * 6) > 0) {
-//    Serial.println("V = ");
-//    Serial.println(voltage * 6);
-//    Serial.println(" V");
-//  }
-//  else {
-//    Serial.println("V = ");
-//    Serial.println(0.00);
-//    Serial.println(" V");
-//    Serial.println("I = ");
-//    Serial.println(0.00);
-//    Serial.println(" A");
-//    Serial.println("P = ");
-//    Serial.println(0.00);
-//    Serial.println(" W");
-//  }
-//  if (((current - 2.496) * 5) > 0) {
-//    Serial.println("I = ");
-//    Serial.println((current - 2.496) * 5);
-//    Serial.println(" A");
-//    Serial.println("P = ");
-//    Serial.println(((current - 2.496) * 5) * (voltage * 6));
-//    Serial.println(" W");
-//  }
-//  else {
-//    Serial.println("I = ");
-//    Serial.println(0.00);
-//    Serial.println(" A");
-//    Serial.println("P = ");
-//    Serial.println(0.00);
-//    Serial.println(" W");
-//  }
 
   // reset sample count and analog samples
   sample_count = 0;
