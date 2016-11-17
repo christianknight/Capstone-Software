@@ -73,7 +73,7 @@ void setup() {
 
   // Serial communication initialization
   // -----------------------------------
-  //Serial.begin(9600);
+  Serial.begin(9600);
 }
 void loop() {
   // To Do:
@@ -91,7 +91,7 @@ void loop() {
       output_ref = (analogRead(MANUAL_MODE_POT)/1023.0)*25; // Max output of 20V
     }
     Update_duty_cycle();
-    delay(50);
+    //delay(50);
   //}
   //output_curr_val= (analogRead(OUTPUT_CURR_PIN)/1023.0)*10.5;
   //Print_output_curr_val();
@@ -99,13 +99,13 @@ void loop() {
   duty_cycle = (analogRead(MANUAL_MODE_POT)/1023.0)*255;
   analogWrite(PWM_PIN, duty_cycle);
   */
-  /*delay(200);
+  
+  delay(500);
   Print_output_curr_val();
   Print_output_ref();
   Print_output_val();
   Print_duty_cycle();
-  Serial.print("-----------------------\n");
-  */
+  Serial.print("-----------------------\n"); 
 }
 
 // Update current mode
@@ -179,24 +179,16 @@ void Update_duty_cycle(void) {
     output_val = (analogRead(OUTPUT_VOLT_PIN)/1023.0)*5*4.38;
   }
   else if (current_operating_mode == low) {
-    output_val = (analogRead(OUTPUT_VOLT_PIN)/1023.0)*5*4.4;
+    output_val = (analogRead(OUTPUT_VOLT_PIN)/1023.0)*5*4.38;
   }
 
-  output_curr_val= (analogRead(OUTPUT_CURR_PIN)/1023.0)*9.5;
+  output_curr_val= (analogRead(OUTPUT_CURR_PIN)/1023.0)*10.5;
   
   // If in off mode, set duty cycle equal to zero
   if (output_ref == 0) {
     duty_cycle = 0;
     analogWrite(PWM_PIN, duty_cycle);
   }
-  /*
-  else if ((output_val >= (output_ref + output_ref * tolerance)) && (output_curr_val < output_curr_max/10.0)) {
-    current_operating_mode = low;
-    output_ref = low_mode_output_ref;
-    Turn_mode_LEDs_off();
-    digitalWrite(LOW_MODE_LED, HIGH);
-  }
-  */
   // If output voltage below tolerance, increase duty cycle
   else if ((output_val <= (output_ref - output_ref * tolerance)) && (output_curr_val < output_curr_max) && (duty_cycle < max_duty_cycle)) {
   //else if ((output_val <= (output_ref - output_ref * tolerance)) && (duty_cycle < max_duty_cycle)) {
