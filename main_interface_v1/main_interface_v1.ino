@@ -153,6 +153,50 @@ bool ls_aux_button = 0;
 // Alternator controller
 bool ac_en_button = 0;
 
+float val_1 = 0;
+float val_2 = 0;
+float val_3 = 0;
+float val_4 = 0;
+
+// Analog measurement variables
+// -----------------------------
+const unsigned int num_samples = 20; // Number of samples to take for ADC measurements
+// Source selector input voltages
+float ADC_ss_ac = 0;
+float ADC_ss_bike = 0;
+float ADC_ss_aux = 0;
+// Miscellaneous measurements
+float ADC_cc_pot = 0; // Duty cycle potentiometer for charge controller
+float ADC_cc_volt = 0; // Charge controller output voltage
+float ADC_ac_curr = 0; // Alternator controller field winding current
+
+// Power monitoring easurement variables
+// -------------------------------------
+// Voltage measurements
+float P1_aux_volt = 0;
+float P2_bus_volt = 0;
+float P3_sys_volt = 0;
+float P4_ac_volt = 0;
+float P5_dc_volt = 0;
+float P6_in_volt = 0;
+// Current measurements
+float P1_aux_curr = 0;
+float P2_bus_curr = 0;
+float P3_sys_curr = 0;
+float P4_ac_curr = 0;
+float P5_dc_curr = 0;
+float P6_in_curr = 0;
+// Power measurements
+float P1_aux_pwr = 0;
+float P2_bus_pwr = 0;
+float P3_sys_pwr = 0;
+float P4_ac_pwr = 0;
+float P5_dc_pwr = 0;
+float P6_in_pwr = 0;
+
+// 0x3E
+// 0x3F
+// 0x50
 // LCD initialization variables
 const uint8_t LCD_address = 0x27;  // LCD display i2c address
 LiquidCrystal_I2C lcd(LCD_address,20,4);  // 20 chars and 4 line display
@@ -203,6 +247,12 @@ void setup() {
   digitalWrite(SHIFT_ENABLE, LOW);
   digitalWrite(SHIFT_LATCH, LOW);
 
+  // 4:1 Analog MUX initializations
+  pinMode(MUX_S1, OUTPUT);
+  pinMode(MUX_S0, OUTPUT);
+  digitalWrite(MUX_S1, LOW);
+  digitalWrite(MUX_S0, LOW);
+  
   /*
   // ADC pins
   pinMode(FINE_PIN, INPUT);
@@ -247,10 +297,26 @@ void loop() {
   Turn_buttons_on(); // Turn on push buttons
   attachInterrupt(1, ISP_Button_Press, RISING);  // Set up interrupt for push buttons
 
+  //analogWrite(PWM_AC, 2);
   
   while(1) {
-
+    Get_Analog_Measurements();
     
+    LCD_clear_row(1); // Clear row
+    lcd.setCursor(0, 0); // Reset cursor
+    lcd.print(" Val 1 = "); lcd.print(val_1, 5);
+    
+    LCD_clear_row(2); // Clear row
+    lcd.setCursor(0, 1); // Reset cursor
+    lcd.print(" Val 2 = "); lcd.print(val_2, 5);
+    
+    LCD_clear_row(3); // Clear row
+    lcd.setCursor(0, 2); // Reset cursor
+    lcd.print(" Val 3 = "); lcd.print(val_3, 5);
+    
+    LCD_clear_row(4); // Clear row
+    lcd.setCursor(0, 3); // Reset cursor
+    lcd.print(" Val 4 = "); lcd.print(val_4, 5);
     delay(300);
   }
 }
@@ -858,3 +924,113 @@ void Clear_button_presses(void) {
   ac_en_button = 0;
 }
 
+void Get_Analog_Measurements(void) {
+  // Variables
+  unsigned int i;
+  float ADC_sum_1;
+  float ADC_sum_2;
+  float ADC_sum_3;
+  float ADC_sum_4;
+
+
+  // S1 = 0, S0 = 0
+  // --------------
+  // Set MUX position
+  digitalWrite(MUX_S1, HIGH);
+  digitalWrite(MUX_S0, HIGH);
+  // Average ADC measurements over num_samples number of samples
+  ADC_sum_1 = 0;
+  ADC_sum_2 = 0;
+  ADC_sum_3 = 0;
+  ADC_sum_4 = 0;
+  for (i = 0; i < num_samples; i++) {
+    ADC_sum_1 += analogRead(A0);
+    ADC_sum_2 += analogRead(A1);
+    ADC_sum_3 += analogRead(A2);
+    ADC_sum_4 += analogRead(A3);
+  }
+  P1_aux_volt = ADC_sum_1/(num_samples*1023.0);
+  P2_bus_curr = ADC_sum_2/(num_samples*1023.0);
+  P1_aux_curr = ADC_sum_3/(num_samples*1023.0);
+  ADC_ac_curr = ADC_sum_4/(num_samples*1023.0);
+
+
+  // S1 = 0, S0 = 1
+  // --------------
+  // Set MUX position
+  digitalWrite(MUX_S1, HIGH);
+  digitalWrite(MUX_S0, HIGH);
+  // Average ADC measurements over num_samples number of samples
+  ADC_sum_1 = 0;
+  ADC_sum_2 = 0;
+  ADC_sum_3 = 0;
+  ADC_sum_4 = 0;
+  for (i = 0; i < num_samples; i++) {
+    ADC_sum_1 += analogRead(A0);
+    ADC_sum_2 += analogRead(A1);
+    ADC_sum_3 += analogRead(A2);
+    ADC_sum_4 += analogRead(A3);
+  }
+  P5_dc_volt = ADC_sum_1/(num_samples*1023.0);
+  P4_ac_curr = ADC_sum_2/(num_samples*1023.0);
+  ADC_ss_bike = ADC_sum_3/(num_samples*1023.0);
+  P6_in_curr = ADC_sum_4/(num_samples*1023.0);
+
+
+  // S1 = 1, S0 = 0
+  // --------------
+  // Set MUX position
+  digitalWrite(MUX_S1, HIGH);
+  digitalWrite(MUX_S0, HIGH);
+  // Average ADC measurements over num_samples number of samples
+  ADC_sum_1 = 0;
+  ADC_sum_2 = 0;
+  ADC_sum_3 = 0;
+  ADC_sum_4 = 0;
+  for (i = 0; i < num_samples; i++) {
+    ADC_sum_1 += analogRead(A0);
+    ADC_sum_2 += analogRead(A1);
+    ADC_sum_3 += analogRead(A2);
+    ADC_sum_4 += analogRead(A3);
+  }
+  P2_bus_volt = ADC_sum_1/(num_samples*1023.0);
+  P3_sys_curr = ADC_sum_2/(num_samples*1023.0);
+  ADC_ss_ac = ADC_sum_3/(num_samples*1023.0);
+  ADC_cc_volt = ADC_sum_4/(num_samples*1023.0);
+
+
+  // S1 = 1, S0 = 1
+  // --------------
+  // Set MUX position
+  digitalWrite(MUX_S1, HIGH);
+  digitalWrite(MUX_S0, HIGH);
+  // Average ADC measurements over num_samples number of samples
+  ADC_sum_1 = 0;
+  ADC_sum_2 = 0;
+  ADC_sum_3 = 0;
+  ADC_sum_4 = 0;
+  for (i = 0; i < num_samples; i++) {
+    ADC_sum_1 += analogRead(A0);
+    ADC_sum_2 += analogRead(A1);
+    ADC_sum_3 += analogRead(A2);
+    ADC_sum_4 += analogRead(A3);
+  }
+  P6_in_volt = ADC_sum_1/(num_samples*1023.0);
+  P5_dc_curr = ADC_sum_2/(num_samples*1023.0);
+  ADC_ss_aux = ADC_sum_3/(num_samples*1023.0);
+  ADC_cc_pot = ADC_sum_4/(num_samples*1023.0);
+}
+
+void Calculate_Power_Measurements(void) {
+  // Copy voltage values for shared bus node
+  P3_sys_volt = P2_bus_volt;
+  P4_ac_volt = P2_bus_volt;
+
+  // Calculate power measurements from voltage and current measurements
+  P1_aux_pwr = P1_aux_volt * P1_aux_curr;
+  P2_bus_pwr = P2_bus_volt * P2_bus_curr;
+  P3_sys_pwr = P3_sys_volt * P3_sys_curr;
+  P4_ac_pwr  = P4_ac_volt  * P4_ac_curr;
+  P5_dc_pwr  = P5_dc_volt  * P5_dc_curr;
+  P6_in_pwr  = P6_in_volt  * P6_in_curr;
+}
