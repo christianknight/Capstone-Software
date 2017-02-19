@@ -179,6 +179,7 @@ float P3_sys_volt = 0;
 float P4_ac_volt = 0;
 float P5_dc_volt = 0;
 float P6_in_volt = 0;
+float P7_bat_volt = 0;
 // Current measurements
 float P1_aux_curr = 0;
 float P2_bus_curr = 0;
@@ -186,6 +187,7 @@ float P3_sys_curr = 0;
 float P4_ac_curr = 0;
 float P5_dc_curr = 0;
 float P6_in_curr = 0;
+float P7_bat_curr = 0;
 // Power measurements
 float P1_aux_pwr = 0;
 float P2_bus_pwr = 0;
@@ -193,13 +195,13 @@ float P3_sys_pwr = 0;
 float P4_ac_pwr = 0;
 float P5_dc_pwr = 0;
 float P6_in_pwr = 0;
+float P7_bat_pwr = 0;
 
-// 0x3E
-// 0x3F
-// 0x50
+// 0x50 <-- EEPROM address
 // LCD initialization variables
-const uint8_t LCD_address = 0x27;  // LCD display i2c address
-LiquidCrystal_I2C lcd(LCD_address,20,4);  // 20 chars and 4 line display
+LiquidCrystal_I2C lcd_1(0x27, 20, 4);  // 20 chars and 4 line display @ address 0x27
+LiquidCrystal_I2C lcd_2(0x3F, 20, 4);  // 20 chars and 4 line display @ address 0x3E
+LiquidCrystal_I2C lcd_3(0x3E, 20, 4);  // 20 chars and 4 line display @ address 0x3F
 
 // LCD position variables
 uint8_t LCD_row_duty_cycle = 3;
@@ -274,11 +276,16 @@ void setup() {
 
   // LCD Initializations
   // -------------------
-  lcd.init();  // initialize the lcd
-  lcd.backlight(); // turn on backlight
-  //lcd.noBacklight(); // turn off backlight
-  lcd.setCursor(0,0); // 1st row
-  lcd.print(" CHARGE  CONTROLLER ");
+  //lcd_1.noBacklight(); // turn off backlight
+  lcd_1.init();  // initialize the lcd
+  lcd_1.backlight(); // turn on backlight
+  lcd_1.clear();
+  lcd_2.init();  // initialize the lcd
+  lcd_2.backlight(); // turn on backlight
+  lcd_2.clear();
+  lcd_3.init();  // initialize the lcd
+  lcd_3.backlight(); // turn on backlight
+  lcd_3.clear();
 }
 
 void loop() {
@@ -298,26 +305,30 @@ void loop() {
   attachInterrupt(1, ISP_Button_Press, RISING);  // Set up interrupt for push buttons
 
   //analogWrite(PWM_AC, 2);
-  
+
+
   while(1) {
     Get_Analog_Measurements();
-    
+    LCD_print_power_measurements();
+
+    /*
     LCD_clear_row(1); // Clear row
-    lcd.setCursor(0, 0); // Reset cursor
-    lcd.print(" Val 1 = "); lcd.print(val_1, 5);
+    lcd_1.setCursor(0, 0); // Reset cursor
+    lcd_1.print(" Val 1 = "); lcd_1.print(val_1, 5);
     
     LCD_clear_row(2); // Clear row
-    lcd.setCursor(0, 1); // Reset cursor
-    lcd.print(" Val 2 = "); lcd.print(val_2, 5);
+    lcd_1.setCursor(0, 1); // Reset cursor
+    lcd_1.print(" Val 2 = "); lcd_1.print(val_2, 5);
     
     LCD_clear_row(3); // Clear row
-    lcd.setCursor(0, 2); // Reset cursor
-    lcd.print(" Val 3 = "); lcd.print(val_3, 5);
+    lcd_1.setCursor(0, 2); // Reset cursor
+    lcd_1.print(" Val 3 = "); lcd_1.print(val_3, 5);
     
     LCD_clear_row(4); // Clear row
-    lcd.setCursor(0, 3); // Reset cursor
-    lcd.print(" Val 4 = "); lcd.print(val_4, 5);
-    delay(300);
+    lcd_1.setCursor(0, 3); // Reset cursor
+    lcd_1.print(" Val 4 = "); lcd_1.print(val_4, 5);
+    */
+    delay(2000);
   }
 }
 
@@ -339,56 +350,157 @@ void Update_duty_cycle_fine(void) {
 // LCD functions
 // -------------
 
+/*
 // Print the duty cycle to the LCD
 void LCD_print_duty_cycle(void) {
   LCD_clear_row(LCD_row_duty_cycle); // Clear row
-  lcd.setCursor(0, LCD_row_duty_cycle-1); // Reset cursor
+  lcd_1.setCursor(0, LCD_row_duty_cycle-1); // Reset cursor
   // If value is less than 10% add extra padding to string
   if (((float) duty_cycle/255 * 100) < 10) {
-    lcd.print(" Duty Cycle =  "); lcd.print((float) duty_cycle/255 * 100, 1); lcd.print("%");
+    lcd_1.print(" Duty Cycle =  "); lcd_1.print((float) duty_cycle/255 * 100, 1); lcd_1.print("%");
   }
   else {
-    lcd.print(" Duty Cycle = "); lcd.print((float) duty_cycle/255 * 100, 1); lcd.print("%");
+    lcd_1.print(" Duty Cycle = "); lcd_1.print((float) duty_cycle/255 * 100, 1); lcd_1.print("%");
   }
 } // LCD_print_duty_cycle
 
 // Print the efficiency to the LCD
 void LCD_print_efficiency(void) {
   LCD_clear_row(LCD_row_efficiency); // Clear row
-  lcd.setCursor(0, LCD_row_efficiency-1); // Reset cursor
+  lcd_1.setCursor(0, LCD_row_efficiency-1); // Reset cursor
   if (efficiency < 10) {
-    lcd.print(" Efficiency =  "); lcd.print(efficiency,1); lcd.print("%");
+    lcd_1.print(" Efficiency =  "); lcd_1.print(efficiency,1); lcd_1.print("%");
   }
   else {
-    lcd.print(" Efficiency = "); lcd.print(efficiency,1); lcd.print("%");
+    lcd_1.print(" Efficiency = "); lcd_1.print(efficiency,1); lcd_1.print("%");
   }
 } // LCD_print_efficiency
 
 // Print the output voltage to the LCD
 void LCD_print_vout(void) {
   LCD_clear_row(LCD_row_vout); // Clear row
-  lcd.setCursor(0, LCD_row_vout-1); // Reset cursor
+  lcd_1.setCursor(0, LCD_row_vout-1); // Reset cursor
   if (vout < 10) {
-    lcd.print(" Vout =  "); lcd.print(vout,1); lcd.print("V");
+    lcd_1.print(" Vout =  "); lcd_1.print(vout,1); lcd_1.print("V");
   }
   else {
-    lcd.print(" Vout = "); lcd.print(vout,1); lcd.print("V");
+    lcd_1.print(" Vout = "); lcd_1.print(vout,1); lcd_1.print("V");
   }
 } // LCD_print_vout
 
 // Print the alternator current to the LCD
 void LCD_print_alt_curr(void) {
   LCD_clear_row(LCD_row_alt_curr); // Clear row
-  lcd.setCursor(0, LCD_row_alt_curr-1); // Reset cursor
-  lcd.print(" Alt.Current= "); lcd.print(alt_curr,3); lcd.print("A");
+  lcd_1.setCursor(0, LCD_row_alt_curr-1); // Reset cursor
+  lcd_1.print(" Alt.Current= "); lcd_1.print(alt_curr,3); lcd_1.print("A");
 } // LCD_print_alt_curr
 
 // Clear specified row of the LCD
 void LCD_clear_row(uint8_t row) {
-  lcd.setCursor( 0, row-1); // 3rd row
-  lcd.print("                    ");
+  lcd_1.setCursor( 0, row-1); // 3rd row
+  lcd_1.print("                    ");
 } // LCD_clear_row
+*/
+void LCD_print_power_measurements(void) {
+  // Voltage, current, and power measurements are displayed with 4 significant digits
 
+  // LCD Display #2
+  // --------------
+  lcd_2.clear();
+  lcd_2.print("Power Monitoring Sys");
+  
+  // P6: Input node measurements
+  lcd_2.setCursor(0, 1);
+  if (P6_in_volt < 10) lcd_2.print("0");
+  lcd_2.print(P6_in_volt, 2); lcd_2.print("V ");
+  if (P6_in_curr < 10) lcd_2.print("0");
+  lcd_2.print(P6_in_curr, 2); lcd_2.print("A ");
+  if (P6_in_pwr < 100) lcd_2.print("0");
+  if (P6_in_pwr < 10) lcd_2.print("0");
+  lcd_2.print(P6_in_pwr, 1); lcd_2.print("W");
+  
+  // P2: Bus node measurements
+  lcd_2.setCursor(0, 2);
+  if (P2_bus_volt < 10) lcd_2.print("0");
+  lcd_2.print(P2_bus_volt, 2); lcd_2.print("V ");
+  if (P2_bus_curr < 10) lcd_2.print("0");
+  lcd_2.print(P2_bus_curr, 2); lcd_2.print("A ");
+  if (P2_bus_pwr < 100) lcd_2.print("0");
+  if (P2_bus_pwr < 10) lcd_2.print("0");
+  lcd_2.print(P2_bus_pwr, 1); lcd_2.print("W");
+
+  // P1: Auxiliary output node measurements
+  lcd_2.setCursor(0, 3);
+  if (P1_aux_volt < 10) lcd_2.print("0");
+  lcd_2.print(P1_aux_volt, 2); lcd_2.print("V ");
+  if (P1_aux_curr < 10) lcd_2.print("0");
+  lcd_2.print(P1_aux_curr, 2); lcd_2.print("A ");
+  if (P1_aux_pwr < 100) lcd_2.print("0");
+  if (P1_aux_pwr < 10) lcd_2.print("0");
+  lcd_2.print(P1_aux_pwr, 1); lcd_2.print("W");
+
+
+  // LCD Display #3
+  // --------------
+  lcd_3.clear();
+  
+  // P5: 12VDC output node measurements
+  lcd_3.setCursor(0, 0);
+  if (P5_dc_volt < 10) lcd_3.print("0");
+  lcd_3.print(P5_dc_volt, 2); lcd_3.print("V ");
+  if (P5_dc_curr < 10) lcd_3.print("0");
+  lcd_3.print(P5_dc_curr, 2); lcd_3.print("A ");
+  if (P6_in_pwr < 100) lcd_3.print("0");
+  if (P6_in_pwr < 10) lcd_3.print("0");
+  lcd_3.print(P5_dc_pwr, 1); lcd_3.print("W");
+  
+  // P4: 120VAC node measurements (Actually the 12VDC output going to the inverter)
+  lcd_3.setCursor(0, 1);
+  if (P4_ac_volt < 10) lcd_3.print("0");
+  lcd_3.print(P4_ac_volt, 2); lcd_3.print("V ");
+  if (P4_ac_curr < 10) lcd_3.print("0");
+  lcd_3.print(P4_ac_curr, 2); lcd_3.print("A ");
+  if (P4_ac_pwr < 100) lcd_3.print("0");
+  if (P4_ac_pwr < 10) lcd_3.print("0");
+  lcd_3.print(P4_ac_pwr, 1); lcd_3.print("W");
+  
+  // P3: Systems power node measurements
+  lcd_3.setCursor(0, 2);
+  if (P3_sys_volt < 10) lcd_3.print("0");
+  lcd_3.print(P3_sys_volt, 2); lcd_3.print("V ");
+  if (P1_aux_curr < 10) lcd_3.print("0");
+  lcd_3.print(P3_sys_curr, 2); lcd_3.print("A ");
+  if (P1_aux_pwr < 100) lcd_3.print("0");
+  if (P1_aux_pwr < 10) lcd_3.print("0");
+  lcd_3.print(P3_sys_pwr, 1); lcd_3.print("W");
+  
+  // P7: Battery output node measurements
+  lcd_3.setCursor(0, 3);
+  if (P7_bat_volt < 10) lcd_3.print("0");
+  lcd_3.print(P1_aux_volt, 2); lcd_3.print("V ");
+  if (P7_bat_curr < 10) lcd_3.print("0");
+  lcd_3.print(P7_bat_curr, 2); lcd_3.print("A ");
+  if (P7_bat_pwr < 100) lcd_3.print("0");
+  if (P7_bat_pwr < 10) lcd_3.print("0");
+  lcd_3.print(P7_bat_pwr, 1); lcd_3.print("W");
+}
+
+
+
+void LCD_clear_row(String lcd_number, uint8_t row) {
+  if (lcd_number == "lcd_1") {
+      lcd_1.setCursor(0, row);
+      lcd_1.print("                    ");
+  }
+  else if (lcd_number == "lcd_2") {
+      lcd_2.setCursor(0, row);
+      lcd_2.print("                    ");
+  }
+  else if (lcd_number == "lcd_3") {
+      lcd_3.setCursor(0, row);
+      lcd_3.print("                    ");
+  }
+}
 
 void Update_source_selector_mode(void) {
   if ((ss_off_button == HIGH) && (!(ss_mode == SS_OFF))) {
@@ -936,8 +1048,9 @@ void Get_Analog_Measurements(void) {
   // S1 = 0, S0 = 0
   // --------------
   // Set MUX position
-  digitalWrite(MUX_S1, HIGH);
-  digitalWrite(MUX_S0, HIGH);
+  digitalWrite(MUX_S1, LOW);
+  digitalWrite(MUX_S0, LOW);
+  delay(50);
   // Average ADC measurements over num_samples number of samples
   ADC_sum_1 = 0;
   ADC_sum_2 = 0;
@@ -953,13 +1066,17 @@ void Get_Analog_Measurements(void) {
   P2_bus_curr = ADC_sum_2/(num_samples*1023.0);
   P1_aux_curr = ADC_sum_3/(num_samples*1023.0);
   ADC_ac_curr = ADC_sum_4/(num_samples*1023.0);
-
+  Serial.print(P1_aux_volt); Serial.print("\n");
+  Serial.print(P2_bus_curr); Serial.print("\n");
+  Serial.print(P1_aux_curr); Serial.print("\n");
+  Serial.print(ADC_ac_curr); Serial.print("\n");
 
   // S1 = 0, S0 = 1
   // --------------
   // Set MUX position
-  digitalWrite(MUX_S1, HIGH);
+  digitalWrite(MUX_S1, LOW);
   digitalWrite(MUX_S0, HIGH);
+  delay(50);
   // Average ADC measurements over num_samples number of samples
   ADC_sum_1 = 0;
   ADC_sum_2 = 0;
@@ -975,13 +1092,18 @@ void Get_Analog_Measurements(void) {
   P4_ac_curr = ADC_sum_2/(num_samples*1023.0);
   ADC_ss_bike = ADC_sum_3/(num_samples*1023.0);
   P6_in_curr = ADC_sum_4/(num_samples*1023.0);
+  Serial.print(P5_dc_volt); Serial.print("\n");
+  Serial.print(P4_ac_volt); Serial.print("\n");
+  Serial.print(ADC_ss_bike); Serial.print("\n");
+  Serial.print(P6_in_curr); Serial.print("\n");
 
 
   // S1 = 1, S0 = 0
   // --------------
   // Set MUX position
   digitalWrite(MUX_S1, HIGH);
-  digitalWrite(MUX_S0, HIGH);
+  digitalWrite(MUX_S0, LOW);
+  delay(50);
   // Average ADC measurements over num_samples number of samples
   ADC_sum_1 = 0;
   ADC_sum_2 = 0;
@@ -997,6 +1119,10 @@ void Get_Analog_Measurements(void) {
   P3_sys_curr = ADC_sum_2/(num_samples*1023.0);
   ADC_ss_ac = ADC_sum_3/(num_samples*1023.0);
   ADC_cc_volt = ADC_sum_4/(num_samples*1023.0);
+  Serial.print(P2_bus_volt); Serial.print("\n");
+  Serial.print(P3_sys_curr); Serial.print("\n");
+  Serial.print(ADC_ss_ac); Serial.print("\n");
+  Serial.print(ADC_cc_volt); Serial.print("\n");
 
 
   // S1 = 1, S0 = 1
@@ -1004,6 +1130,7 @@ void Get_Analog_Measurements(void) {
   // Set MUX position
   digitalWrite(MUX_S1, HIGH);
   digitalWrite(MUX_S0, HIGH);
+  delay(50);
   // Average ADC measurements over num_samples number of samples
   ADC_sum_1 = 0;
   ADC_sum_2 = 0;
@@ -1019,12 +1146,21 @@ void Get_Analog_Measurements(void) {
   P5_dc_curr = ADC_sum_2/(num_samples*1023.0);
   ADC_ss_aux = ADC_sum_3/(num_samples*1023.0);
   ADC_cc_pot = ADC_sum_4/(num_samples*1023.0);
+  Serial.print(P6_in_volt); Serial.print("\n");
+  Serial.print(P5_dc_volt); Serial.print("\n");
+  Serial.print(ADC_ss_aux); Serial.print("\n");
+  Serial.print(ADC_cc_pot); Serial.print("\n");
+  Serial.print("----------------\n");
 }
 
 void Calculate_Power_Measurements(void) {
   // Copy voltage values for shared bus node
   P3_sys_volt = P2_bus_volt;
   P4_ac_volt = P2_bus_volt;
+  P7_bat_volt = P2_bus_volt;
+
+  // Calculate battery net current based on KCL
+  P7_bat_curr = P2_bus_curr - P3_sys_curr - P4_ac_curr - P5_dc_curr;
 
   // Calculate power measurements from voltage and current measurements
   P1_aux_pwr = P1_aux_volt * P1_aux_curr;
@@ -1033,4 +1169,5 @@ void Calculate_Power_Measurements(void) {
   P4_ac_pwr  = P4_ac_volt  * P4_ac_curr;
   P5_dc_pwr  = P5_dc_volt  * P5_dc_curr;
   P6_in_pwr  = P6_in_volt  * P6_in_curr;
+  P7_bat_pwr = P7_bat_volt * P7_bat_curr;
 }
