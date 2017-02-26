@@ -160,7 +160,7 @@ float val_4 = 0;
 
 // Analog measurement variables
 // -----------------------------
-const unsigned int num_samples = 2<<3; // == 16; Number of samples to take for ADC measurements, must be power of two when using a bitwise shift
+const unsigned int num_samples = 50; // Number of samples to take for ADC measurements
 const unsigned int measurement_delay_ms = 20;
 // Source selector input voltages
 float ADC_ss_ac = 0;
@@ -1112,7 +1112,8 @@ void Get_Analog_Measurements(void) {
   unsigned int i;
   float ADC_sum;
   const float ADC_scale = 5/1023.0/num_samples;
-  // Calibration variables
+  
+  // Measurement scales
   const float P1_aux_volt_scale = 1;
   const float P2_bus_curr_scale = 1;
   const float P1_aux_curr_scale = 1;
@@ -1126,10 +1127,27 @@ void Get_Analog_Measurements(void) {
   const float ADC_ss_bike_scale = 1;
   const float P6_in_curr_scale = 1;
   const float P6_in_volt_scale = 1;
-  const float P5_dc_curr_scale = 2.041;
+  const float P5_dc_curr_scale = 0.01;
   const float ADC_ss_aux_scale = 1;
   const float ADC_cc_pot_scale = 1;
-
+  
+  // Measurement offsets
+  const float P1_aux_volt_offset = 1.75;
+  const float P2_bus_curr_offset = 1.75;
+  const float P1_aux_curr_offset = 2.20;
+  const float ADC_ac_curr_offset = 2.00;
+  const float P2_bus_volt_offset = 1.75;
+  const float P3_sys_curr_offset = 1.75;
+  const float ADC_ss_ac_offset = 0.80;
+  const float ADC_cc_volt_offset = 0.85;
+  const float P5_dc_volt_offset = 1.75;
+  const float P4_ac_curr_offset = 1.95;
+  const float ADC_ss_bike_offset = 0.70;
+  const float P6_in_curr_offset = 1.75;
+  const float P6_in_volt_offset = 1.75;
+  const float P5_dc_curr_offset = 3.90;
+  const float ADC_ss_aux_offset = 0.85;
+  const float ADC_cc_pot_offset = 2.25;
 
 
   // S0 = 0, S1 = 0
@@ -1144,7 +1162,8 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A0);
   }
-  P1_aux_volt = P1_aux_volt_scale*ADC_scale*ADC_sum;
+  P1_aux_volt = P1_aux_volt_scale*(ADC_sum/num_samples - P1_aux_volt_offset);
+  if (P1_aux_volt < 0) P1_aux_volt = 0;
   Serial.print("P1_aux_volt = "); Serial.print(P1_aux_volt,5); Serial.print("\n");
   
   // Get channel 2 measurement
@@ -1153,7 +1172,8 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A1);
   }
-  P2_bus_curr = P2_bus_curr_scale*ADC_scale*ADC_sum;
+  P2_bus_curr = P2_bus_curr_scale*(ADC_sum/num_samples - P2_bus_curr_offset);
+  if (P2_bus_curr < 0) P2_bus_curr = 0;
   Serial.print("P2_bus_curr = "); Serial.print(P2_bus_curr,5); Serial.print("\n");
   
   // Get channel 3 measurement
@@ -1162,7 +1182,8 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A2);
   }
-  P1_aux_curr = P1_aux_curr_scale*ADC_scale*ADC_sum;
+  P1_aux_curr = P1_aux_curr_scale*(ADC_sum/num_samples - P1_aux_curr_offset);
+  if (P1_aux_curr < 0) P1_aux_curr = 0;
   Serial.print("P1_aux_curr = "); Serial.print(P1_aux_curr,5); Serial.print("\n");
   
   // Get channel 4 measurement
@@ -1171,7 +1192,8 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A3);
   }
-  ADC_ac_curr = ADC_ac_curr_scale*ADC_scale*ADC_sum;
+  ADC_ac_curr = ADC_ac_curr_scale*(ADC_sum/num_samples - ADC_ac_curr_offset);
+  if (ADC_ac_curr < 0) ADC_ac_curr = 0;
   Serial.print("ADC_ac_curr = "); Serial.print(ADC_ac_curr,5); Serial.print("\n");
   
     
@@ -1187,7 +1209,8 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A0);
   }
-  P2_bus_volt = P2_bus_volt_scale*ADC_scale*ADC_sum;
+  P2_bus_volt = P2_bus_volt_scale*(ADC_sum/num_samples - P2_bus_volt_offset);
+  if (P2_bus_volt < 0) P2_bus_volt = 0;
   Serial.print("P2_bus_volt = "); Serial.print(P2_bus_volt,5); Serial.print("\n");
   
   // Get channel 2 measurement
@@ -1196,7 +1219,8 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A1);
   }
-  P3_sys_curr = P3_sys_curr_scale*ADC_scale*ADC_sum;
+  P3_sys_curr = P3_sys_curr_scale*(ADC_sum/num_samples - P3_sys_curr_offset);
+  if (P3_sys_curr < 0) P3_sys_curr = 0;
   Serial.print("P3_sys_curr = "); Serial.print(P3_sys_curr,5); Serial.print("\n");
   
   // Get channel 3 measurement
@@ -1205,7 +1229,8 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A2);
   }
-  ADC_ss_ac = ADC_ss_ac_scale*ADC_scale*ADC_sum;
+  ADC_ss_ac = ADC_ss_ac_scale*(ADC_sum/num_samples - ADC_ss_ac_offset);
+  if (ADC_ss_ac < 0) ADC_ss_ac = 0;
   Serial.print("ADC_ss_ac = "); Serial.print(ADC_ss_ac,5); Serial.print("\n");
   
   // Get channel 4 measurement
@@ -1214,7 +1239,8 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A3);
   }
-  ADC_cc_volt = ADC_cc_volt_scale*ADC_scale*ADC_sum;
+  ADC_cc_volt = ADC_cc_volt_scale*(ADC_sum/num_samples - ADC_cc_volt_offset);
+  if (ADC_cc_volt < 0) ADC_cc_volt = 0;
   Serial.print("ADC_cc_volt = "); Serial.print(ADC_cc_volt,5); Serial.print("\n");
 
 
@@ -1230,7 +1256,8 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A0);
   }
-  P5_dc_volt = P5_dc_volt_scale*ADC_scale*ADC_sum;
+  P5_dc_volt = P5_dc_volt_scale*(ADC_sum/num_samples - P5_dc_volt_offset);
+  if (P5_dc_volt < 0) P5_dc_volt = 0;
   Serial.print("P5_dc_volt = "); Serial.print(P5_dc_volt,5); Serial.print("\n");
   
   // Get channel 2 measurement
@@ -1239,7 +1266,8 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A1);
   }
-  P4_ac_curr = P4_ac_curr_scale*ADC_scale*ADC_sum;
+  P4_ac_curr = P4_ac_curr_scale*(ADC_sum/num_samples - P4_ac_curr_offset);
+  if (P4_ac_curr < 0) P4_ac_curr = 0;
   Serial.print("P4_ac_curr = "); Serial.print(P4_ac_curr,5); Serial.print("\n");
   
   // Get channel 3 measurement
@@ -1248,7 +1276,8 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A2);
   }
-  ADC_ss_bike = ADC_ss_bike_scale*ADC_scale*ADC_sum;
+  ADC_ss_bike = ADC_ss_bike_scale*(ADC_sum/num_samples - ADC_ss_bike_offset);
+  if (ADC_ss_bike < 0) ADC_ss_bike = 0;
   Serial.print("ADC_ss_bike = "); Serial.print(ADC_ss_bike,5); Serial.print("\n");
   
   // Get channel 4 measurement
@@ -1257,7 +1286,8 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A3);
   }
-  P6_in_curr = P6_in_curr_scale*ADC_scale*ADC_sum;
+  P6_in_curr = P6_in_curr_scale*(ADC_sum/num_samples - P6_in_curr_offset);
+  if (P6_in_curr < 0) P6_in_curr = 0;
   Serial.print("P6_in_curr = "); Serial.print(P6_in_curr,5); Serial.print("\n");
 
 
@@ -1273,7 +1303,8 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A0);
   }
-  P6_in_volt = P6_in_volt_scale*ADC_scale*ADC_sum;
+  P6_in_volt = P6_in_volt_scale*(ADC_sum/num_samples - P6_in_volt_offset);
+  if (P6_in_volt < 0) P6_in_volt = 0;
   Serial.print("P6_in_volt = "); Serial.print(P6_in_volt,5); Serial.print("\n");
   
   // Get channel 2 measurement
@@ -1282,7 +1313,8 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A1);
   }
-  P5_dc_curr = P5_dc_curr_scale*ADC_scale*ADC_sum;
+  P5_dc_curr = P5_dc_curr_scale*(ADC_sum/num_samples - P5_dc_curr_offset);
+  if (P5_dc_curr < 0) P5_dc_curr = 0;
   Serial.print("P5_dc_curr = "); Serial.print(P5_dc_curr,5); Serial.print("\n");
   
   // Get channel 3 measurement
@@ -1291,7 +1323,8 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A2);
   }
-  ADC_ss_aux = ADC_ss_aux_scale*ADC_scale*ADC_sum;
+  ADC_ss_aux = ADC_ss_aux_scale*(ADC_sum/num_samples - ADC_ss_aux_offset);
+  if (ADC_ss_aux < 0) ADC_ss_aux = 0;
   Serial.print("ADC_ss_aux = "); Serial.print(ADC_ss_aux,5); Serial.print("\n");
   
   // Get channel 4 measurement
@@ -1300,7 +1333,8 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A3);
   }
-  ADC_cc_pot = ADC_cc_pot_scale*ADC_scale*ADC_sum;
+  ADC_cc_pot = ADC_cc_pot_scale*(ADC_sum/num_samples - ADC_cc_pot_offset);
+  if (ADC_cc_pot < 0) ADC_cc_pot = 0;
   Serial.print("ADC_cc_pot = "); Serial.print(ADC_cc_pot,5); Serial.print("\n");
 
   Serial.print("----------------\n");
