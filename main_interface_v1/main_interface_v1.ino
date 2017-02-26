@@ -160,7 +160,8 @@ float val_4 = 0;
 
 // Analog measurement variables
 // -----------------------------
-const unsigned int num_samples = 20; // Number of samples to take for ADC measurements
+const unsigned int num_samples = 2<<3; // == 16; Number of samples to take for ADC measurements, must be power of two when using a bitwise shift
+const unsigned int measurement_delay_ms = 20;
 // Source selector input voltages
 float ADC_ss_ac = 0;
 float ADC_ss_bike = 0;
@@ -250,6 +251,7 @@ void setup() {
   digitalWrite(SHIFT_LATCH, LOW);
 
   // 4:1 Analog MUX initializations
+  analogReference(EXTERNAL);
   pinMode(MUX_S1, OUTPUT);
   pinMode(MUX_S0, OUTPUT);
   digitalWrite(MUX_S1, LOW);
@@ -278,14 +280,14 @@ void setup() {
   // -------------------
   //lcd_1.noBacklight(); // turn off backlight
   lcd_1.init();  // initialize the lcd
-  lcd_1.backlight(); // turn on backlight
-  lcd_1.clear();
   lcd_2.init();  // initialize the lcd
-  lcd_2.backlight(); // turn on backlight
-  lcd_2.clear();
   lcd_3.init();  // initialize the lcd
-  lcd_3.backlight(); // turn on backlight
+  lcd_1.clear();
+  lcd_2.clear();
   lcd_3.clear();
+  lcd_1.backlight(); // turn on backlight
+  lcd_2.backlight(); // turn on backlight
+  lcd_3.backlight(); // turn on backlight
 }
 
 void loop() {
@@ -306,11 +308,14 @@ void loop() {
 
   //analogWrite(PWM_AC, 2);
 
+  
 
   while(1) {
-    Get_Analog_Measurements();
-    LCD_print_power_measurements();
 
+    Get_Analog_Measurements();
+    Calculate_Power_Measurements();
+    LCD_print_power_measurements();
+    
     /*
     LCD_clear_row(1); // Clear row
     lcd_1.setCursor(0, 0); // Reset cursor
@@ -406,35 +411,51 @@ void LCD_print_power_measurements(void) {
 
   // LCD Display #2
   // --------------
+  // --------------
   lcd_2.clear();
   lcd_2.print("Power Monitoring Sys");
   
   // P6: Input node measurements
+  // ---------------------------
   lcd_2.setCursor(0, 1);
+  // Print voltage measurement
   if (P6_in_volt < 10) lcd_2.print("0");
   lcd_2.print(P6_in_volt, 2); lcd_2.print("V ");
-  if (P6_in_curr < 10) lcd_2.print("0");
-  lcd_2.print(P6_in_curr, 2); lcd_2.print("A ");
+  // Print current measurement
+  if (P6_in_curr > 10) lcd_2.print(P6_in_curr, 2);
+  else lcd_2.print(P6_in_curr, 3);
+  lcd_2.print("A ");
+  // Print power measurement
   if (P6_in_pwr < 100) lcd_2.print("0");
   if (P6_in_pwr < 10) lcd_2.print("0");
   lcd_2.print(P6_in_pwr, 1); lcd_2.print("W");
   
   // P2: Bus node measurements
+  // -------------------------
   lcd_2.setCursor(0, 2);
+  // Print voltage measurement
   if (P2_bus_volt < 10) lcd_2.print("0");
   lcd_2.print(P2_bus_volt, 2); lcd_2.print("V ");
-  if (P2_bus_curr < 10) lcd_2.print("0");
-  lcd_2.print(P2_bus_curr, 2); lcd_2.print("A ");
+  // Print current measurement
+  if (P2_bus_curr > 10) lcd_2.print(P2_bus_curr, 2);
+  else lcd_2.print(P2_bus_curr, 3);
+  lcd_2.print("A ");
+  // Print power measurement
   if (P2_bus_pwr < 100) lcd_2.print("0");
   if (P2_bus_pwr < 10) lcd_2.print("0");
   lcd_2.print(P2_bus_pwr, 1); lcd_2.print("W");
 
   // P1: Auxiliary output node measurements
+  // --------------------------------------
   lcd_2.setCursor(0, 3);
+  // Print voltage measurement
   if (P1_aux_volt < 10) lcd_2.print("0");
   lcd_2.print(P1_aux_volt, 2); lcd_2.print("V ");
-  if (P1_aux_curr < 10) lcd_2.print("0");
-  lcd_2.print(P1_aux_curr, 2); lcd_2.print("A ");
+  // Print current measurement
+  if (P1_aux_curr > 10) lcd_2.print(P1_aux_curr, 2);
+  else lcd_2.print(P1_aux_curr, 3);
+  lcd_2.print("A ");
+  // Print power measurement
   if (P1_aux_pwr < 100) lcd_2.print("0");
   if (P1_aux_pwr < 10) lcd_2.print("0");
   lcd_2.print(P1_aux_pwr, 1); lcd_2.print("W");
@@ -442,47 +463,96 @@ void LCD_print_power_measurements(void) {
 
   // LCD Display #3
   // --------------
+  // --------------
   lcd_3.clear();
   
   // P5: 12VDC output node measurements
+  // ----------------------------------
   lcd_3.setCursor(0, 0);
+  // Print voltage measurement
   if (P5_dc_volt < 10) lcd_3.print("0");
   lcd_3.print(P5_dc_volt, 2); lcd_3.print("V ");
-  if (P5_dc_curr < 10) lcd_3.print("0");
-  lcd_3.print(P5_dc_curr, 2); lcd_3.print("A ");
-  if (P6_in_pwr < 100) lcd_3.print("0");
-  if (P6_in_pwr < 10) lcd_3.print("0");
+  // Print current measurement
+  if (P5_dc_curr > 10) lcd_3.print(P5_dc_curr, 2);
+  else lcd_3.print(P5_dc_curr, 3);
+  lcd_3.print("A ");
+  // Print power measurement
+  if (P5_dc_pwr < 100) lcd_3.print("0");
+  if (P5_dc_pwr < 10) lcd_3.print("0");
   lcd_3.print(P5_dc_pwr, 1); lcd_3.print("W");
   
   // P4: 120VAC node measurements (Actually the 12VDC output going to the inverter)
+  // ------------------------------------------------------------------------------
   lcd_3.setCursor(0, 1);
+  // Print voltage measurement
   if (P4_ac_volt < 10) lcd_3.print("0");
   lcd_3.print(P4_ac_volt, 2); lcd_3.print("V ");
-  if (P4_ac_curr < 10) lcd_3.print("0");
-  lcd_3.print(P4_ac_curr, 2); lcd_3.print("A ");
+  // Print current measurement
+  if (P4_ac_curr > 10) lcd_3.print(P4_ac_curr, 2);
+  else lcd_3.print(P4_ac_curr, 3);
+  lcd_3.print("A ");
+  // Print power measurement
   if (P4_ac_pwr < 100) lcd_3.print("0");
   if (P4_ac_pwr < 10) lcd_3.print("0");
   lcd_3.print(P4_ac_pwr, 1); lcd_3.print("W");
   
   // P3: Systems power node measurements
+  // -----------------------------------
   lcd_3.setCursor(0, 2);
+  // Print voltage measurement
   if (P3_sys_volt < 10) lcd_3.print("0");
   lcd_3.print(P3_sys_volt, 2); lcd_3.print("V ");
-  if (P1_aux_curr < 10) lcd_3.print("0");
-  lcd_3.print(P3_sys_curr, 2); lcd_3.print("A ");
-  if (P1_aux_pwr < 100) lcd_3.print("0");
-  if (P1_aux_pwr < 10) lcd_3.print("0");
+  // Print current measurement
+  if (P3_sys_curr > 10) lcd_3.print(P3_sys_curr, 2);
+  else lcd_3.print(P3_sys_curr, 3);
+  lcd_3.print("A ");
+  // Print power measurement
+  if (P3_sys_pwr < 100) lcd_3.print("0");
+  if (P3_sys_pwr < 10) lcd_3.print("0");
   lcd_3.print(P3_sys_pwr, 1); lcd_3.print("W");
   
   // P7: Battery output node measurements
+  // ------------------------------------
   lcd_3.setCursor(0, 3);
+  // Print voltage measurement
   if (P7_bat_volt < 10) lcd_3.print("0");
-  lcd_3.print(P1_aux_volt, 2); lcd_3.print("V ");
-  if (P7_bat_curr < 10) lcd_3.print("0");
-  lcd_3.print(P7_bat_curr, 2); lcd_3.print("A ");
-  if (P7_bat_pwr < 100) lcd_3.print("0");
-  if (P7_bat_pwr < 10) lcd_3.print("0");
-  lcd_3.print(P7_bat_pwr, 1); lcd_3.print("W");
+  lcd_3.print(P7_bat_volt, 2); lcd_3.print("V ");
+  // Print current measurement
+  if (P7_bat_curr >= 0) {
+    lcd_3.print("+");
+    if (P7_bat_curr > 10) lcd_3.print(P7_bat_curr, 1);
+    else lcd_3.print(P7_bat_curr, 2);
+  }
+  else {
+    lcd_3.print("-");
+    if (P7_bat_curr < -10) lcd_3.print(-1*P7_bat_curr, 1);
+    else lcd_3.print(-1*P7_bat_curr, 2);
+  }
+  lcd_3.print("A ");
+  // Print power measurement
+  if (P7_bat_pwr >= 0) {
+    lcd_3.print("+");
+    if (P7_bat_pwr >= 100) {
+      lcd_3.print((int)P7_bat_pwr);
+      lcd_3.print(".");
+    }
+    else {
+      if (P7_bat_pwr < 10) lcd_3.print("0");
+      lcd_3.print(P7_bat_pwr, 1);
+    }
+  }
+  else {
+    lcd_3.print("-");
+    if (P7_bat_pwr <= -100) {
+      lcd_3.print(-1*(int)P7_bat_pwr);
+      lcd_3.print(".");
+    }
+    else {
+      if (P7_bat_pwr > -10) lcd_3.print("0");
+      lcd_3.print(-1*P7_bat_pwr, 1);
+    }
+  }
+  lcd_3.print("W");
 }
 
 
@@ -1038,120 +1108,204 @@ void Clear_button_presses(void) {
 
 void Get_Analog_Measurements(void) {
   // Variables
+  // ---------
   unsigned int i;
-  float ADC_sum_1;
-  float ADC_sum_2;
-  float ADC_sum_3;
-  float ADC_sum_4;
+  float ADC_sum;
+  const float ADC_scale = 5/1023.0/num_samples;
+  // Calibration variables
+  const float P1_aux_volt_scale = 1;
+  const float P2_bus_curr_scale = 1;
+  const float P1_aux_curr_scale = 1;
+  const float ADC_ac_curr_scale = 1;
+  const float P2_bus_volt_scale = 1;
+  const float P3_sys_curr_scale = 1;
+  const float ADC_ss_ac_scale = 1;
+  const float ADC_cc_volt_scale = 1;
+  const float P5_dc_volt_scale = 1;
+  const float P4_ac_curr_scale = 1;
+  const float ADC_ss_bike_scale = 1;
+  const float P6_in_curr_scale = 1;
+  const float P6_in_volt_scale = 1;
+  const float P5_dc_curr_scale = 2.041;
+  const float ADC_ss_aux_scale = 1;
+  const float ADC_cc_pot_scale = 1;
 
 
-  // S1 = 0, S0 = 0
+
+  // S0 = 0, S1 = 0
   // --------------
-  // Set MUX position
-  digitalWrite(MUX_S1, LOW);
   digitalWrite(MUX_S0, LOW);
-  delay(50);
-  // Average ADC measurements over num_samples number of samples
-  ADC_sum_1 = 0;
-  ADC_sum_2 = 0;
-  ADC_sum_3 = 0;
-  ADC_sum_4 = 0;
-  for (i = 0; i < num_samples; i++) {
-    ADC_sum_1 += analogRead(A0);
-    ADC_sum_2 += analogRead(A1);
-    ADC_sum_3 += analogRead(A2);
-    ADC_sum_4 += analogRead(A3);
-  }
-  P1_aux_volt = ADC_sum_1/(num_samples*1023.0);
-  P2_bus_curr = ADC_sum_2/(num_samples*1023.0);
-  P1_aux_curr = ADC_sum_3/(num_samples*1023.0);
-  ADC_ac_curr = ADC_sum_4/(num_samples*1023.0);
-  Serial.print(P1_aux_volt); Serial.print("\n");
-  Serial.print(P2_bus_curr); Serial.print("\n");
-  Serial.print(P1_aux_curr); Serial.print("\n");
-  Serial.print(ADC_ac_curr); Serial.print("\n");
-
-  // S1 = 0, S0 = 1
-  // --------------
-  // Set MUX position
   digitalWrite(MUX_S1, LOW);
-  digitalWrite(MUX_S0, HIGH);
-  delay(50);
-  // Average ADC measurements over num_samples number of samples
-  ADC_sum_1 = 0;
-  ADC_sum_2 = 0;
-  ADC_sum_3 = 0;
-  ADC_sum_4 = 0;
+  delay(measurement_delay_ms);
+    
+  // Get channel 1 measurement
+  ADC_sum = 0;
+  analogRead(A0); // Throw away first sample
   for (i = 0; i < num_samples; i++) {
-    ADC_sum_1 += analogRead(A0);
-    ADC_sum_2 += analogRead(A1);
-    ADC_sum_3 += analogRead(A2);
-    ADC_sum_4 += analogRead(A3);
+    ADC_sum += analogRead(A0);
   }
-  P5_dc_volt = ADC_sum_1/(num_samples*1023.0);
-  P4_ac_curr = ADC_sum_2/(num_samples*1023.0);
-  ADC_ss_bike = ADC_sum_3/(num_samples*1023.0);
-  P6_in_curr = ADC_sum_4/(num_samples*1023.0);
-  Serial.print(P5_dc_volt); Serial.print("\n");
-  Serial.print(P4_ac_volt); Serial.print("\n");
-  Serial.print(ADC_ss_bike); Serial.print("\n");
-  Serial.print(P6_in_curr); Serial.print("\n");
-
-
-  // S1 = 1, S0 = 0
+  P1_aux_volt = P1_aux_volt_scale*ADC_scale*ADC_sum;
+  Serial.print("P1_aux_volt = "); Serial.print(P1_aux_volt,5); Serial.print("\n");
+  
+  // Get channel 2 measurement
+  ADC_sum = 0;
+  analogRead(A1); // Throw away first sample
+  for (i = 0; i < num_samples; i++) {
+    ADC_sum += analogRead(A1);
+  }
+  P2_bus_curr = P2_bus_curr_scale*ADC_scale*ADC_sum;
+  Serial.print("P2_bus_curr = "); Serial.print(P2_bus_curr,5); Serial.print("\n");
+  
+  // Get channel 3 measurement
+  ADC_sum = 0;
+  analogRead(A2); // Throw away first sample
+  for (i = 0; i < num_samples; i++) {
+    ADC_sum += analogRead(A2);
+  }
+  P1_aux_curr = P1_aux_curr_scale*ADC_scale*ADC_sum;
+  Serial.print("P1_aux_curr = "); Serial.print(P1_aux_curr,5); Serial.print("\n");
+  
+  // Get channel 4 measurement
+  ADC_sum = 0;
+  analogRead(A3); // Throw away first sample
+  for (i = 0; i < num_samples; i++) {
+    ADC_sum += analogRead(A3);
+  }
+  ADC_ac_curr = ADC_ac_curr_scale*ADC_scale*ADC_sum;
+  Serial.print("ADC_ac_curr = "); Serial.print(ADC_ac_curr,5); Serial.print("\n");
+  
+    
+  // S0 = 0, S1 = 1
   // --------------
-  // Set MUX position
-  digitalWrite(MUX_S1, HIGH);
   digitalWrite(MUX_S0, LOW);
-  delay(50);
-  // Average ADC measurements over num_samples number of samples
-  ADC_sum_1 = 0;
-  ADC_sum_2 = 0;
-  ADC_sum_3 = 0;
-  ADC_sum_4 = 0;
-  for (i = 0; i < num_samples; i++) {
-    ADC_sum_1 += analogRead(A0);
-    ADC_sum_2 += analogRead(A1);
-    ADC_sum_3 += analogRead(A2);
-    ADC_sum_4 += analogRead(A3);
-  }
-  P2_bus_volt = ADC_sum_1/(num_samples*1023.0);
-  P3_sys_curr = ADC_sum_2/(num_samples*1023.0);
-  ADC_ss_ac = ADC_sum_3/(num_samples*1023.0);
-  ADC_cc_volt = ADC_sum_4/(num_samples*1023.0);
-  Serial.print(P2_bus_volt); Serial.print("\n");
-  Serial.print(P3_sys_curr); Serial.print("\n");
-  Serial.print(ADC_ss_ac); Serial.print("\n");
-  Serial.print(ADC_cc_volt); Serial.print("\n");
-
-
-  // S1 = 1, S0 = 1
-  // --------------
-  // Set MUX position
   digitalWrite(MUX_S1, HIGH);
-  digitalWrite(MUX_S0, HIGH);
-  delay(50);
-  // Average ADC measurements over num_samples number of samples
-  ADC_sum_1 = 0;
-  ADC_sum_2 = 0;
-  ADC_sum_3 = 0;
-  ADC_sum_4 = 0;
+  delay(measurement_delay_ms);
+    
+  // Get channel 1 measurement
+  ADC_sum = 0;
+  analogRead(A0); // Throw away first sample
   for (i = 0; i < num_samples; i++) {
-    ADC_sum_1 += analogRead(A0);
-    ADC_sum_2 += analogRead(A1);
-    ADC_sum_3 += analogRead(A2);
-    ADC_sum_4 += analogRead(A3);
+    ADC_sum += analogRead(A0);
   }
-  P6_in_volt = ADC_sum_1/(num_samples*1023.0);
-  P5_dc_curr = ADC_sum_2/(num_samples*1023.0);
-  ADC_ss_aux = ADC_sum_3/(num_samples*1023.0);
-  ADC_cc_pot = ADC_sum_4/(num_samples*1023.0);
-  Serial.print(P6_in_volt); Serial.print("\n");
-  Serial.print(P5_dc_volt); Serial.print("\n");
-  Serial.print(ADC_ss_aux); Serial.print("\n");
-  Serial.print(ADC_cc_pot); Serial.print("\n");
+  P2_bus_volt = P2_bus_volt_scale*ADC_scale*ADC_sum;
+  Serial.print("P2_bus_volt = "); Serial.print(P2_bus_volt,5); Serial.print("\n");
+  
+  // Get channel 2 measurement
+  ADC_sum = 0;
+  analogRead(A1); // Throw away first sample
+  for (i = 0; i < num_samples; i++) {
+    ADC_sum += analogRead(A1);
+  }
+  P3_sys_curr = P3_sys_curr_scale*ADC_scale*ADC_sum;
+  Serial.print("P3_sys_curr = "); Serial.print(P3_sys_curr,5); Serial.print("\n");
+  
+  // Get channel 3 measurement
+  ADC_sum = 0;
+  analogRead(A2); // Throw away first sample
+  for (i = 0; i < num_samples; i++) {
+    ADC_sum += analogRead(A2);
+  }
+  ADC_ss_ac = ADC_ss_ac_scale*ADC_scale*ADC_sum;
+  Serial.print("ADC_ss_ac = "); Serial.print(ADC_ss_ac,5); Serial.print("\n");
+  
+  // Get channel 4 measurement
+  ADC_sum = 0;
+  analogRead(A3); // Throw away first sample
+  for (i = 0; i < num_samples; i++) {
+    ADC_sum += analogRead(A3);
+  }
+  ADC_cc_volt = ADC_cc_volt_scale*ADC_scale*ADC_sum;
+  Serial.print("ADC_cc_volt = "); Serial.print(ADC_cc_volt,5); Serial.print("\n");
+
+
+  // S0 = 1, S1 = 0
+  // --------------
+  digitalWrite(MUX_S0, HIGH);
+  digitalWrite(MUX_S1, LOW);
+  delay(measurement_delay_ms);
+    
+  // Get channel 1 measurement
+  ADC_sum = 0;
+  analogRead(A0); // Throw away first sample
+  for (i = 0; i < num_samples; i++) {
+    ADC_sum += analogRead(A0);
+  }
+  P5_dc_volt = P5_dc_volt_scale*ADC_scale*ADC_sum;
+  Serial.print("P5_dc_volt = "); Serial.print(P5_dc_volt,5); Serial.print("\n");
+  
+  // Get channel 2 measurement
+  ADC_sum = 0;
+  analogRead(A1); // Throw away first sample
+  for (i = 0; i < num_samples; i++) {
+    ADC_sum += analogRead(A1);
+  }
+  P4_ac_curr = P4_ac_curr_scale*ADC_scale*ADC_sum;
+  Serial.print("P4_ac_curr = "); Serial.print(P4_ac_curr,5); Serial.print("\n");
+  
+  // Get channel 3 measurement
+  ADC_sum = 0;
+  analogRead(A2); // Throw away first sample
+  for (i = 0; i < num_samples; i++) {
+    ADC_sum += analogRead(A2);
+  }
+  ADC_ss_bike = ADC_ss_bike_scale*ADC_scale*ADC_sum;
+  Serial.print("ADC_ss_bike = "); Serial.print(ADC_ss_bike,5); Serial.print("\n");
+  
+  // Get channel 4 measurement
+  ADC_sum = 0;
+  analogRead(A3); // Throw away first sample
+  for (i = 0; i < num_samples; i++) {
+    ADC_sum += analogRead(A3);
+  }
+  P6_in_curr = P6_in_curr_scale*ADC_scale*ADC_sum;
+  Serial.print("P6_in_curr = "); Serial.print(P6_in_curr,5); Serial.print("\n");
+
+
+  // S0 = 1, S1 = 1
+  // --------------
+  digitalWrite(MUX_S0, HIGH);
+  digitalWrite(MUX_S1, HIGH);
+  delay(measurement_delay_ms);
+    
+  // Get channel 1 measurement
+  ADC_sum = 0;
+  analogRead(A0); // Throw away first sample
+  for (i = 0; i < num_samples; i++) {
+    ADC_sum += analogRead(A0);
+  }
+  P6_in_volt = P6_in_volt_scale*ADC_scale*ADC_sum;
+  Serial.print("P6_in_volt = "); Serial.print(P6_in_volt,5); Serial.print("\n");
+  
+  // Get channel 2 measurement
+  ADC_sum = 0;
+  analogRead(A1); // Throw away first sample
+  for (i = 0; i < num_samples; i++) {
+    ADC_sum += analogRead(A1);
+  }
+  P5_dc_curr = P5_dc_curr_scale*ADC_scale*ADC_sum;
+  Serial.print("P5_dc_curr = "); Serial.print(P5_dc_curr,5); Serial.print("\n");
+  
+  // Get channel 3 measurement
+  ADC_sum = 0;
+  analogRead(A2); // Throw away first sample
+  for (i = 0; i < num_samples; i++) {
+    ADC_sum += analogRead(A2);
+  }
+  ADC_ss_aux = ADC_ss_aux_scale*ADC_scale*ADC_sum;
+  Serial.print("ADC_ss_aux = "); Serial.print(ADC_ss_aux,5); Serial.print("\n");
+  
+  // Get channel 4 measurement
+  ADC_sum = 0;
+  analogRead(A3); // Throw away first sample
+  for (i = 0; i < num_samples; i++) {
+    ADC_sum += analogRead(A3);
+  }
+  ADC_cc_pot = ADC_cc_pot_scale*ADC_scale*ADC_sum;
+  Serial.print("ADC_cc_pot = "); Serial.print(ADC_cc_pot,5); Serial.print("\n");
+
   Serial.print("----------------\n");
 }
+
 
 void Calculate_Power_Measurements(void) {
   // Copy voltage values for shared bus node
