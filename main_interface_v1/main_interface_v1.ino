@@ -312,10 +312,18 @@ void loop() {
 
   while(1) {
 
+    int loop;
+    float ave = 0;
+    for (loop = 0; loop < 10; loop++) {
+
     Get_Analog_Measurements();
     Calculate_Power_Measurements();
     LCD_print_power_measurements();
-    
+
+    ave += P5_dc_curr;
+
+
+
     /*
     LCD_clear_row(1); // Clear row
     lcd_1.setCursor(0, 0); // Reset cursor
@@ -333,7 +341,15 @@ void loop() {
     lcd_1.setCursor(0, 3); // Reset cursor
     lcd_1.print(" Val 4 = "); lcd_1.print(val_4, 5);
     */
+    Serial.print(loop);
+    Serial.print("\n================\n");
     delay(2000);
+    }
+    Serial.print("================\n");
+    Serial.print(ave/10.0, 2);
+    Serial.print("\n================\n");
+    Serial.print("================\n");
+
   }
 }
 
@@ -516,19 +532,19 @@ void LCD_print_power_measurements(void) {
   lcd_3.setCursor(0, 3);
   // Print voltage measurement
   if (P7_bat_volt < 10) lcd_3.print("0");
-  lcd_3.print(P7_bat_volt, 2); lcd_3.print("V ");
+  lcd_3.print(P7_bat_volt, 2); lcd_3.print("V");
   // Print current measurement
   if (P7_bat_curr >= 0) {
     lcd_3.print("+");
     if (P7_bat_curr > 10) lcd_3.print(P7_bat_curr, 1);
-    else lcd_3.print(P7_bat_curr, 2);
+    else lcd_3.print(P7_bat_curr, 3);
   }
   else {
     lcd_3.print("-");
     if (P7_bat_curr < -10) lcd_3.print(-1*P7_bat_curr, 1);
-    else lcd_3.print(-1*P7_bat_curr, 2);
+    else lcd_3.print(-1*P7_bat_curr, 3);
   }
-  lcd_3.print("A ");
+  lcd_3.print("A");
   // Print power measurement
   if (P7_bat_pwr >= 0) {
     lcd_3.print("+");
@@ -537,6 +553,7 @@ void LCD_print_power_measurements(void) {
       lcd_3.print(".");
     }
     else {
+      if (P7_bat_pwr < 100) lcd_3.print("0");
       if (P7_bat_pwr < 10) lcd_3.print("0");
       lcd_3.print(P7_bat_pwr, 1);
     }
@@ -548,6 +565,7 @@ void LCD_print_power_measurements(void) {
       lcd_3.print(".");
     }
     else {
+      if (P7_bat_pwr > -100) lcd_3.print("0");
       if (P7_bat_pwr > -10) lcd_3.print("0");
       lcd_3.print(-1*P7_bat_pwr, 1);
     }
@@ -1114,40 +1132,139 @@ void Get_Analog_Measurements(void) {
   const float ADC_scale = 5/1023.0/num_samples;
   
   // Measurement scales
+  // ------------------
+  // Power Measurement #2
   const float P1_aux_volt_scale = 1;
-  const float P2_bus_curr_scale = 1;
-  const float P1_aux_curr_scale = 1;
-  const float ADC_ac_curr_scale = 1;
+  const float ADC_ac_curr_scale = 0.003164;
   const float P2_bus_volt_scale = 1;
-  const float P3_sys_curr_scale = 1;
-  const float ADC_ss_ac_scale = 1;
-  const float ADC_cc_volt_scale = 1;
-  const float P5_dc_volt_scale = 1;
-  const float P4_ac_curr_scale = 1;
-  const float ADC_ss_bike_scale = 1;
-  const float P6_in_curr_scale = 1;
-  const float P6_in_volt_scale = 1;
-  const float P5_dc_curr_scale = 0.01;
-  const float ADC_ss_aux_scale = 1;
-  const float ADC_cc_pot_scale = 1;
+  const float ADC_ss_ac_scale   = 0.066641;
+  const float ADC_cc_volt_scale = 0.021081;
+  const float P5_dc_volt_scale  = 1;
+  const float ADC_ss_bike_scale = 0.068046;
+
   
-  // Measurement offsets
-  const float P1_aux_volt_offset = 1.75;
-  const float P2_bus_curr_offset = 1.75;
-  const float P1_aux_curr_offset = 2.20;
-  const float ADC_ac_curr_offset = 2.00;
-  const float P2_bus_volt_offset = 1.75;
-  const float P3_sys_curr_offset = 1.75;
-  const float ADC_ss_ac_offset = 0.80;
-  const float ADC_cc_volt_offset = 0.85;
-  const float P5_dc_volt_offset = 1.75;
-  const float P4_ac_curr_offset = 1.95;
-  const float ADC_ss_bike_offset = 0.70;
-  const float P6_in_curr_offset = 1.75;
-  const float P6_in_volt_offset = 1.75;
-  const float P5_dc_curr_offset = 3.90;
-  const float ADC_ss_aux_offset = 0.85;
-  const float ADC_cc_pot_offset = 2.25;
+  const float P6_in_volt_scale  = 1;
+  const float ADC_ss_aux_scale  = 0.065485;
+  const float ADC_cc_pot_scale  = 5/1023.0;
+
+  
+  // Power Measurement #1
+  const float P1_aux_curr_slope_1  = 0.010000;
+  const float P1_aux_curr_slope_2  = 0.010030;
+  const float P1_aux_curr_slope_3  = 0.010101;
+  const float P1_aux_curr_slope_4  = 0.009992;
+  const float P1_aux_curr_slope_5  = 0.009957;
+  // Power Measurement #2
+  const float P2_bus_curr_slope_1  = 0.009930;
+  const float P2_bus_curr_slope_2  = 0.010173;
+  const float P2_bus_curr_slope_3  = 0.010040;
+  const float P2_bus_curr_slope_4  = 0.009925;
+  const float P2_bus_curr_slope_5  = 0.009914;
+ // Power Measurement #3
+  const float P3_sys_curr_slope_1  = 0.010010;
+  const float P3_sys_curr_slope_2  = 0.009891;
+  const float P3_sys_curr_slope_3  = 0.010089;
+  const float P3_sys_curr_slope_4  = 0.009907;
+  const float P3_sys_curr_slope_5  = 0.009872;
+ // Power Measurement #4
+  const float P4_ac_curr_slope_1   = 0.010091;
+  const float P4_ac_curr_slope_2   = 0.010101;
+  const float P4_ac_curr_slope_3   = 0.010146;
+  const float P4_ac_curr_slope_4   = 0.010012;
+  const float P4_ac_curr_slope_5   = 0.009947;
+ // Power Measurement #5
+  const float P5_dc_curr_slope_1   = 0.010132;
+  const float P5_dc_curr_slope_2   = 0.010132;
+  const float P5_dc_curr_slope_3   = 0.010284;
+  const float P5_dc_curr_slope_4   = 0.010093;
+  const float P5_dc_curr_slope_5   = 0.010045;
+  // Power Measurement #6
+  const float P6_in_curr_slope_1   = 0.009901;
+  const float P6_in_curr_slope_2   = 0.010152;
+  const float P6_in_curr_slope_3   = 0.010020;
+  const float P6_in_curr_slope_4   = 0.010000;
+  const float P6_in_curr_slope_5   = 0.009903;
+
+  
+ 
+
+  // Power Measurement #1
+  const float P1_aux_curr_intercept_1 =-0.006300;
+  const float P1_aux_curr_intercept_2 =-0.006770;
+  const float P1_aux_curr_intercept_3 =-0.008586;
+  const float P1_aux_curr_intercept_4 =-0.003098;
+  const float P1_aux_curr_intercept_5 = 0.000398; 
+  // Power Measurement #2
+  const float P2_bus_curr_intercept_1 = 0.025869;
+  const float P2_bus_curr_intercept_2 = 0.022838;
+  const float P2_bus_curr_intercept_3 = 0.025803;
+  const float P2_bus_curr_intercept_4 = 0.031262;
+  const float P2_bus_curr_intercept_5 = 0.032271; 
+  // Power Measurement #3
+  const float P3_sys_curr_intercept_1 = 0.025776;
+  const float P3_sys_curr_intercept_2 = 0.027250;
+  const float P3_sys_curr_intercept_3 = 0.022800;
+  const float P3_sys_curr_intercept_4 = 0.031405;
+  const float P3_sys_curr_intercept_5 = 0.034776; 
+  // Power Measurement #4
+  const float P4_ac_curr_intercept_1  =-0.000858;
+  const float P4_ac_curr_intercept_2  =-0.001010;
+  const float P4_ac_curr_intercept_3  =-0.002131;
+  const float P4_ac_curr_intercept_4  = 0.004505;
+  const float P4_ac_curr_intercept_5  = 0.010942;
+  // Power Measurement #5
+  const float P5_dc_curr_intercept_1  =-0.037741;
+  const float P5_dc_curr_intercept_2  =-0.037741;
+  const float P5_dc_curr_intercept_3  =-0.042061;
+  const float P5_dc_curr_intercept_4  =-0.031994;
+  const float P5_dc_curr_intercept_5  =-0.027070;
+  // Power Measurement #6 
+  const float P6_in_curr_intercept_1  = 0.031188;
+  const float P6_in_curr_intercept_2  = 0.028173;
+  const float P6_in_curr_intercept_3  = 0.031062;
+  const float P6_in_curr_intercept_4  = 0.032000;
+  const float P6_in_curr_intercept_5  = 0.041347;
+
+
+  // Upper Bounds for Ranges
+  // -----------------------
+  // Power Measurement #1
+  const float P1_aux_curr_bound_0 = 5.63;
+  const float P1_aux_curr_bound_1 = 15.63;
+  const float P1_aux_curr_bound_2 = 25.6;
+  const float P1_aux_curr_bound_3 = 50.35;
+  const float P1_aux_curr_bound_4 = 100.39;
+  // Power Measurement #2
+  const float P2_bus_curr_bound_0 = 2.43;
+  const float P2_bus_curr_bound_1 = 12.5;
+  const float P2_bus_curr_bound_2 = 22.33;
+  const float P2_bus_curr_bound_3 = 47.23;
+  const float P2_bus_curr_bound_4 = 97.61;
+  // Power Measurement #3
+  const float P3_sys_curr_bound_0 = 2.42;
+  const float P3_sys_curr_bound_1 = 12.41;
+  const float P3_sys_curr_bound_2 = 22.52;
+  const float P3_sys_curr_bound_3 = 47.3;
+  const float P3_sys_curr_bound_4 = 97.77;
+  // Power Measurement #4
+  const float P4_ac_curr_bound_0  = 5.04;
+  const float P4_ac_curr_bound_1  = 14.95;
+  const float P4_ac_curr_bound_2  = 24.85;
+  const float P4_ac_curr_bound_3  = 49.49;
+  const float P4_ac_curr_bound_4  = 99.43;
+  // Power Measurement #5
+  const float P5_dc_curr_bound_0  = 8.66;
+  const float P5_dc_curr_bound_1  = 18.53;
+  const float P5_dc_curr_bound_2  = 28.4;
+  const float P5_dc_curr_bound_3  = 52.71;
+  const float P5_dc_curr_bound_4  = 102.25;
+  // Power Measurement #2
+  const float P6_in_curr_bound_0  = 1.9;
+  const float P6_in_curr_bound_1  = 12;
+  const float P6_in_curr_bound_2  = 21.85;
+  const float P6_in_curr_bound_3  = 46.8;
+  const float P6_in_curr_bound_4  = 96.8;
+
 
 
   // S0 = 0, S1 = 0
@@ -1162,7 +1279,7 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A0);
   }
-  P1_aux_volt = P1_aux_volt_scale*(ADC_sum/num_samples - P1_aux_volt_offset);
+  P1_aux_volt = P1_aux_volt_scale*(ADC_sum/num_samples);
   if (P1_aux_volt < 0) P1_aux_volt = 0;
   Serial.print("P1_aux_volt = "); Serial.print(P1_aux_volt,5); Serial.print("\n");
   
@@ -1172,8 +1289,13 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A1);
   }
-  P2_bus_curr = P2_bus_curr_scale*(ADC_sum/num_samples - P2_bus_curr_offset);
-  if (P2_bus_curr < 0) P2_bus_curr = 0;
+  P2_bus_curr = ADC_sum/num_samples;
+  if (P2_bus_curr < P2_bus_curr_bound_0) P2_bus_curr = 0;
+  else if (P2_bus_curr < P2_bus_curr_bound_1) P2_bus_curr = P2_bus_curr_slope_1*P2_bus_curr + P2_bus_curr_intercept_1;
+  else if (P2_bus_curr < P2_bus_curr_bound_2) P2_bus_curr = P2_bus_curr_slope_2*P2_bus_curr + P2_bus_curr_intercept_2;
+  else if (P2_bus_curr < P2_bus_curr_bound_3) P2_bus_curr = P2_bus_curr_slope_3*P2_bus_curr + P2_bus_curr_intercept_3;
+  else if (P2_bus_curr < P2_bus_curr_bound_4) P2_bus_curr = P2_bus_curr_slope_4*P2_bus_curr + P2_bus_curr_intercept_4;
+  else P2_bus_curr = P2_bus_curr_slope_5*P2_bus_curr + P2_bus_curr_intercept_5;
   Serial.print("P2_bus_curr = "); Serial.print(P2_bus_curr,5); Serial.print("\n");
   
   // Get channel 3 measurement
@@ -1182,20 +1304,27 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A2);
   }
-  P1_aux_curr = P1_aux_curr_scale*(ADC_sum/num_samples - P1_aux_curr_offset);
-  if (P1_aux_curr < 0) P1_aux_curr = 0;
+  P1_aux_curr = ADC_sum/num_samples;
+  if (P1_aux_curr < P1_aux_curr_bound_0) P1_aux_curr = 0;
+  else if (P1_aux_curr < P1_aux_curr_bound_1) P1_aux_curr = P1_aux_curr_slope_1*P1_aux_curr + P1_aux_curr_intercept_1;
+  else if (P1_aux_curr < P1_aux_curr_bound_2) P1_aux_curr = P1_aux_curr_slope_2*P1_aux_curr + P1_aux_curr_intercept_2;
+  else if (P1_aux_curr < P1_aux_curr_bound_3) P1_aux_curr = P1_aux_curr_slope_3*P1_aux_curr + P1_aux_curr_intercept_3;
+  else if (P1_aux_curr < P1_aux_curr_bound_4) P1_aux_curr = P1_aux_curr_slope_4*P1_aux_curr + P1_aux_curr_intercept_4;
+  else P1_aux_curr = P1_aux_curr_slope_5*P1_aux_curr + P1_aux_curr_intercept_5;
   Serial.print("P1_aux_curr = "); Serial.print(P1_aux_curr,5); Serial.print("\n");
-  
+
   // Get channel 4 measurement
   ADC_sum = 0;
   analogRead(A3); // Throw away first sample
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A3);
   }
-  ADC_ac_curr = ADC_ac_curr_scale*(ADC_sum/num_samples - ADC_ac_curr_offset);
+  ADC_ac_curr = ADC_ac_curr_scale*(ADC_sum/num_samples);
   if (ADC_ac_curr < 0) ADC_ac_curr = 0;
   Serial.print("ADC_ac_curr = "); Serial.print(ADC_ac_curr,5); Serial.print("\n");
-  
+
+  Serial.print("----------------\n");
+
     
   // S0 = 0, S1 = 1
   // --------------
@@ -1209,7 +1338,7 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A0);
   }
-  P2_bus_volt = P2_bus_volt_scale*(ADC_sum/num_samples - P2_bus_volt_offset);
+  P2_bus_volt = P2_bus_volt_scale*(ADC_sum/num_samples);
   if (P2_bus_volt < 0) P2_bus_volt = 0;
   Serial.print("P2_bus_volt = "); Serial.print(P2_bus_volt,5); Serial.print("\n");
   
@@ -1219,8 +1348,13 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A1);
   }
-  P3_sys_curr = P3_sys_curr_scale*(ADC_sum/num_samples - P3_sys_curr_offset);
-  if (P3_sys_curr < 0) P3_sys_curr = 0;
+  P3_sys_curr = ADC_sum/num_samples;
+  if (P3_sys_curr < P3_sys_curr_bound_0) P3_sys_curr = 0;
+  else if (P3_sys_curr < P3_sys_curr_bound_1) P3_sys_curr = P3_sys_curr_slope_1*P3_sys_curr + P3_sys_curr_intercept_1;
+  else if (P3_sys_curr < P3_sys_curr_bound_2) P3_sys_curr = P3_sys_curr_slope_2*P3_sys_curr + P3_sys_curr_intercept_2;
+  else if (P3_sys_curr < P3_sys_curr_bound_3) P3_sys_curr = P3_sys_curr_slope_3*P3_sys_curr + P3_sys_curr_intercept_3;
+  else if (P3_sys_curr < P3_sys_curr_bound_4) P3_sys_curr = P3_sys_curr_slope_4*P3_sys_curr + P3_sys_curr_intercept_4;
+  else P3_sys_curr = P3_sys_curr_slope_5*P3_sys_curr + P3_sys_curr_intercept_5;
   Serial.print("P3_sys_curr = "); Serial.print(P3_sys_curr,5); Serial.print("\n");
   
   // Get channel 3 measurement
@@ -1229,7 +1363,7 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A2);
   }
-  ADC_ss_ac = ADC_ss_ac_scale*(ADC_sum/num_samples - ADC_ss_ac_offset);
+  ADC_ss_ac = ADC_ss_ac_scale*(ADC_sum/num_samples);
   if (ADC_ss_ac < 0) ADC_ss_ac = 0;
   Serial.print("ADC_ss_ac = "); Serial.print(ADC_ss_ac,5); Serial.print("\n");
   
@@ -1239,9 +1373,11 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A3);
   }
-  ADC_cc_volt = ADC_cc_volt_scale*(ADC_sum/num_samples - ADC_cc_volt_offset);
+  ADC_cc_volt = ADC_cc_volt_scale*(ADC_sum/num_samples);
   if (ADC_cc_volt < 0) ADC_cc_volt = 0;
   Serial.print("ADC_cc_volt = "); Serial.print(ADC_cc_volt,5); Serial.print("\n");
+
+  Serial.print("----------------\n");
 
 
   // S0 = 1, S1 = 0
@@ -1256,7 +1392,7 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A0);
   }
-  P5_dc_volt = P5_dc_volt_scale*(ADC_sum/num_samples - P5_dc_volt_offset);
+  P5_dc_volt = P5_dc_volt_scale*(ADC_sum/num_samples);
   if (P5_dc_volt < 0) P5_dc_volt = 0;
   Serial.print("P5_dc_volt = "); Serial.print(P5_dc_volt,5); Serial.print("\n");
   
@@ -1266,8 +1402,13 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A1);
   }
-  P4_ac_curr = P4_ac_curr_scale*(ADC_sum/num_samples - P4_ac_curr_offset);
-  if (P4_ac_curr < 0) P4_ac_curr = 0;
+  P4_ac_curr = ADC_sum/num_samples;
+  if (P4_ac_curr < P4_ac_curr_bound_0) P4_ac_curr = 0;
+  else if (P4_ac_curr < P4_ac_curr_bound_1) P4_ac_curr = P4_ac_curr_slope_1*P4_ac_curr + P4_ac_curr_intercept_1;
+  else if (P4_ac_curr < P4_ac_curr_bound_2) P4_ac_curr = P4_ac_curr_slope_2*P4_ac_curr + P4_ac_curr_intercept_2;
+  else if (P4_ac_curr < P4_ac_curr_bound_3) P4_ac_curr = P4_ac_curr_slope_3*P4_ac_curr + P4_ac_curr_intercept_3;
+  else if (P4_ac_curr < P4_ac_curr_bound_4) P4_ac_curr = P4_ac_curr_slope_4*P4_ac_curr + P4_ac_curr_intercept_4;
+  else P4_ac_curr = P4_ac_curr_slope_5*P4_ac_curr + P4_ac_curr_intercept_5;
   Serial.print("P4_ac_curr = "); Serial.print(P4_ac_curr,5); Serial.print("\n");
   
   // Get channel 3 measurement
@@ -1276,7 +1417,7 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A2);
   }
-  ADC_ss_bike = ADC_ss_bike_scale*(ADC_sum/num_samples - ADC_ss_bike_offset);
+  ADC_ss_bike = ADC_ss_bike_scale*(ADC_sum/num_samples);
   if (ADC_ss_bike < 0) ADC_ss_bike = 0;
   Serial.print("ADC_ss_bike = "); Serial.print(ADC_ss_bike,5); Serial.print("\n");
   
@@ -1286,9 +1427,16 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A3);
   }
-  P6_in_curr = P6_in_curr_scale*(ADC_sum/num_samples - P6_in_curr_offset);
-  if (P6_in_curr < 0) P6_in_curr = 0;
+  P6_in_curr = ADC_sum/num_samples;
+  if (P6_in_curr < P6_in_curr_bound_0) P6_in_curr = 0;
+  else if (P6_in_curr < P6_in_curr_bound_1) P6_in_curr = P6_in_curr_slope_1*P6_in_curr + P6_in_curr_intercept_1;
+  else if (P6_in_curr < P6_in_curr_bound_2) P6_in_curr = P6_in_curr_slope_2*P6_in_curr + P6_in_curr_intercept_2;
+  else if (P6_in_curr < P6_in_curr_bound_3) P6_in_curr = P6_in_curr_slope_3*P6_in_curr + P6_in_curr_intercept_3;
+  else if (P6_in_curr < P6_in_curr_bound_4) P6_in_curr = P6_in_curr_slope_4*P6_in_curr + P6_in_curr_intercept_4;
+  else P6_in_curr = P6_in_curr_slope_5*P6_in_curr + P6_in_curr_intercept_5;
   Serial.print("P6_in_curr = "); Serial.print(P6_in_curr,5); Serial.print("\n");
+
+  Serial.print("----------------\n");
 
 
   // S0 = 1, S1 = 1
@@ -1303,7 +1451,7 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A0);
   }
-  P6_in_volt = P6_in_volt_scale*(ADC_sum/num_samples - P6_in_volt_offset);
+  P6_in_volt = P6_in_volt_scale*(ADC_sum/num_samples);
   if (P6_in_volt < 0) P6_in_volt = 0;
   Serial.print("P6_in_volt = "); Serial.print(P6_in_volt,5); Serial.print("\n");
   
@@ -1313,8 +1461,13 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A1);
   }
-  P5_dc_curr = P5_dc_curr_scale*(ADC_sum/num_samples - P5_dc_curr_offset);
-  if (P5_dc_curr < 0) P5_dc_curr = 0;
+  P5_dc_curr = ADC_sum/num_samples;
+  if (P5_dc_curr < P5_dc_curr_bound_0) P5_dc_curr = 0;
+  else if (P5_dc_curr < P5_dc_curr_bound_1) P5_dc_curr = P5_dc_curr_slope_1*P5_dc_curr + P5_dc_curr_intercept_1;
+  else if (P5_dc_curr < P5_dc_curr_bound_2) P5_dc_curr = P5_dc_curr_slope_2*P5_dc_curr + P5_dc_curr_intercept_2;
+  else if (P5_dc_curr < P5_dc_curr_bound_3) P5_dc_curr = P5_dc_curr_slope_3*P5_dc_curr + P5_dc_curr_intercept_3;
+  else if (P5_dc_curr < P5_dc_curr_bound_4) P5_dc_curr = P5_dc_curr_slope_4*P5_dc_curr + P5_dc_curr_intercept_4;
+  else P5_dc_curr = P5_dc_curr_slope_5*P5_dc_curr + P5_dc_curr_intercept_5;
   Serial.print("P5_dc_curr = "); Serial.print(P5_dc_curr,5); Serial.print("\n");
   
   // Get channel 3 measurement
@@ -1323,7 +1476,7 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A2);
   }
-  ADC_ss_aux = ADC_ss_aux_scale*(ADC_sum/num_samples - ADC_ss_aux_offset);
+  ADC_ss_aux = ADC_ss_aux_scale*(ADC_sum/num_samples);
   if (ADC_ss_aux < 0) ADC_ss_aux = 0;
   Serial.print("ADC_ss_aux = "); Serial.print(ADC_ss_aux,5); Serial.print("\n");
   
@@ -1333,11 +1486,11 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A3);
   }
-  ADC_cc_pot = ADC_cc_pot_scale*(ADC_sum/num_samples - ADC_cc_pot_offset);
+  ADC_cc_pot = ADC_cc_pot_scale*(ADC_sum/num_samples);
   if (ADC_cc_pot < 0) ADC_cc_pot = 0;
   Serial.print("ADC_cc_pot = "); Serial.print(ADC_cc_pot,5); Serial.print("\n");
 
-  Serial.print("----------------\n");
+  Serial.print("================\n");
 }
 
 
