@@ -112,6 +112,12 @@
 // Alternator controller
 #define AC_OFF  "off "
 #define AC_ON   "on  "
+// Battery states
+#define BAT_NOT_CHARGING "  N/A  "
+#define BAT_CHARGING_CC  "Const I"
+#define BAT_CHARGING_CV  "Const V"
+#define BAT_STANDBY      "Standby"
+
 // Miscellaneous
 #define YES 1
 #define NO 0
@@ -133,6 +139,10 @@ bool ss_aux_available = NO;
 String cc_mode = CC_OFF;     // Current charge controller mode
 String ls_mode = LS_OFF;     // Current load selector mode
 String ac_mode = AC_OFF;     // Current charge controller mode
+// Miscellaneous
+// -------------
+String bat_mode = "not ";
+
 
 // Button press variables
 // ----------------------
@@ -219,11 +229,23 @@ uint8_t LCD_row_efficiency = 4;
 uint8_t LCD_row_vout = 4;
 uint8_t LCD_row_alt_curr = 4;
 
-// Charge controller duty cycle variables
-const uint8_t cc_duty_cycle_max = 255*0.25; // Max duty cycle value of 25%, rounded down for byte data type
+// Charge controller variables
+const uint8_t cc_duty_cycle_max = 255*0.5; // Max duty cycle value of 25%, rounded down for byte data type
 const uint8_t cc_duty_cycle_crse_step = 1; // Duty cycle increment/decrement value for course mode
 signed short cc_duty_cycle = 0; // Signed so that if decremented below zero, easy to set equal to zero
 float cc_duty_cycle_percent = 0; // Duty cycle expressed as a percent
+const float cc_volt_cycle_upper = 14.8; // Charging voltage upper bound
+const float cc_volt_cycle_lower = 14.6; // Charging voltage lower bound
+const float cc_volt_standby_upper = 13.8; // Standby voltage upper bound
+const float cc_volt_standby_lower = 13.6; // Standby voltage upper bound
+const float cc_curr_cycle_max = 1; // Max charging current, units of amps
+const float cc_curr_cycle_min = 0.1; // Min charging current before considered fully charged, units of amps
+const float cc_curr_in_max = 1.25; // Maximum input current
+const float cc_curr_out_max = 1; // Maximum charge controller current
+const float cc_volt_high = 14; // High mode voltage, units of volts
+const float cc_volt_low = 13.5; // Low mode voltage, units of volts
+
+
 
 // Shift register variables
 uint32_t shift_buttons = 0;
@@ -235,6 +257,7 @@ float vout = 0; // Charge controller output voltage
 const uint8_t ac_duty_cycle = 10; // Alternator current contoller duty cycle [0-255]
 bool error = 0; // error flag
 float ss_min_volt = 8; // Minimum voltage for source to be considered available, units of volts
+
 
 // Analog Measurement Constant Variables
   // =====================================
@@ -535,13 +558,15 @@ void loop() {
     Calculate_Power_Measurements();
     LCD_print_power_measurements();
 
-    LCD_print_cc_info();
     //Serial.print(cc_duty_cycle); Serial.print("\n");
     //analogWrite(PWM_CC, cc_duty_cycle);
 
     Update_SS_Status();
+    Update_CC_Status();
 
-    delay(500);
+    LCD_print_cc_info();
+
+    delay(100);
 
 }
 
@@ -554,19 +579,26 @@ void LCD_print_cc_info(void) {
   lcd_1.print(" Charge Controller  ");
   lcd_1.setCursor(0, 1);
   lcd_1.print("Bat Status: ");
+  lcd_1.print(bat_mode);
 
   lcd_1.setCursor(0, 2);
   lcd_1.print("Duty Cycle: ");
   cc_duty_cycle_percent = cc_duty_cycle*100.0/255.0; 
-  Serial.print(cc_duty_cycle_percent); Serial.print("\n");
   if (cc_duty_cycle_percent < 100) lcd_1.print("0");
   if (cc_duty_cycle_percent < 10) lcd_1.print("0");
-  lcd_1.print(cc_duty_cycle_percent, 1);
+  lcd_1.print(cc_duty_cycle_percent, 2);
   lcd_1.print("%");
 
   lcd_1.setCursor(0, 3);
   lcd_1.print("Efficiency: ");
-
+  efficiency = P2_bus_pwr/P6_in_pwr*100.0;
+  if (efficiency > 100) efficiency = 100;
+  if (efficiency < 0) efficiency = 0;
+  if (efficiency < 100) lcd_1.print("0");
+  if (efficiency < 10) lcd_1.print("0");
+  lcd_1.print(efficiency, 2);
+  lcd_1.print("%");
+  
 } // LCD_print_cc_info
 
 void LCD_print_power_measurements(void) {
@@ -1179,6 +1211,7 @@ void ISP_Button_Press(void) {
   
   // If interrupts come faster than 200ms, assume it's a bounce and ignore
   if (interrupt_time - last_interrupt_time > 200) {
+    
     Turn_buttons_off();
     Locate_button_presses();
     
@@ -1188,26 +1221,14 @@ void ISP_Button_Press(void) {
     Update_load_selector_mode();
     Update_alternator_controller_mode();
         
-    // Update charge controller duty cycle
-    //Update_duty_cycle();
-    if (cc_mode == CC_CRSE) {
-      if (cc_up_button == LOW) {
-        Serial.print("Down");
-        cc_duty_cycle -= 10;
-        if (cc_duty_cycle < 0) cc_duty_cycle = 0;
-      }
-      else if (cc_up_button == HIGH) {
-        Serial.print("Up");
-        cc_duty_cycle += 10;
-        if (cc_duty_cycle > cc_duty_cycle_max) cc_duty_cycle = cc_duty_cycle_max;
-      }
-    }
 
     Update_SS_Status();
-    
+    Update_CC_Status();
+
     Clear_button_presses();
     Turn_buttons_on();
     //while(digitalRead(SHIFT_READ)); // Wait while button pressed
+
   }
   last_interrupt_time = interrupt_time;
 } // ISP_Button_Press
@@ -1512,7 +1533,8 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A3);
   }
-  ADC_cc_pot = ADC_cc_pot_scale*(ADC_sum/num_samples);
+  //ADC_cc_pot = ADC_cc_pot_scale*(ADC_sum/num_samples);
+  ADC_cc_pot = ADC_sum/num_samples;
   if (ADC_cc_pot < 0) ADC_cc_pot = 0;
   //Serial.print("ADC_cc_pot = "); Serial.print(ADC_cc_pot,5); Serial.print("\n");
 
@@ -1542,141 +1564,254 @@ void Calculate_Power_Measurements(void) {
 
 void Update_SS_Status(void)
 {
-    // Check availability of input sources and update LEDs
-    // ---------------------------------------------------
-    if (ADC_ss_ac > ss_min_volt) {
-      ss_ac_available = YES;
-      bitSet(shift_outputs, SS_AC_LED_YELLOW);
-    }
-    else {
-      ss_ac_available = NO;
-      bitClear(shift_outputs, SS_AC_LED_YELLOW);
-    }
-    
-    if (ADC_ss_bike > ss_min_volt) {
-      ss_bike_available = YES;
-      bitSet(shift_outputs, SS_BIKE_LED_YELLOW);
-    }
-    else {
-      ss_bike_available = NO;
-      bitClear(shift_outputs, SS_BIKE_LED_YELLOW);
-    }
-    
-    if (ADC_ss_aux > ss_min_volt) {
-      ss_aux_available = YES;
-      bitSet(shift_outputs, SS_AUX_LED_YELLOW);
-    }
-    else {
-      ss_aux_available = NO;
-      bitClear(shift_outputs, SS_AUX_LED_YELLOW);
-    }
+  // Check availability of input sources and update LEDs
+  // ---------------------------------------------------
+  if (ADC_ss_ac > ss_min_volt) {
+    ss_ac_available = YES;
+    bitSet(shift_outputs, SS_AC_LED_YELLOW);
+  }
+  else {
+    ss_ac_available = NO;
+    bitClear(shift_outputs, SS_AC_LED_YELLOW);
+  }
+  
+  if (ADC_ss_bike > ss_min_volt) {
+    ss_bike_available = YES;
+    bitSet(shift_outputs, SS_BIKE_LED_YELLOW);
+  }
+  else {
+    ss_bike_available = NO;
+    bitClear(shift_outputs, SS_BIKE_LED_YELLOW);
+  }
+  
+  if (ADC_ss_aux > ss_min_volt) {
+    ss_aux_available = YES;
+    bitSet(shift_outputs, SS_AUX_LED_YELLOW);
+  }
+  else {
+    ss_aux_available = NO;
+    bitClear(shift_outputs, SS_AUX_LED_YELLOW);
+  }
 
-    // Update active LEDS and Enables lines based on mode and availability
-    // -------------------------------------------------------------------
-    // OFF Mode
-    if (ss_mode == SS_OFF) {
-        ss_source = SS_NONE;
-        // LEDs
-        bitClear(shift_outputs, SS_AC_LED_GREEN);
-        bitClear(shift_outputs, SS_BIKE_LED_GREEN);
-        bitClear(shift_outputs, SS_AUX_LED_GREEN);
-        // Enable lines
-        bitClear(shift_outputs, SS_AC_ENABLE);
-        bitClear(shift_outputs, SS_BIKE_ENABLE);
-        bitClear(shift_outputs, SS_AUX_ENABLE);
+  // Update active LEDS and Enables lines based on mode and availability
+  // -------------------------------------------------------------------
+  // OFF Mode
+  if (ss_mode == SS_OFF) {
+      ss_source = SS_NONE;
+      // LEDs
+      bitClear(shift_outputs, SS_AC_LED_GREEN);
+      bitClear(shift_outputs, SS_BIKE_LED_GREEN);
+      bitClear(shift_outputs, SS_AUX_LED_GREEN);
+      // Enable lines
+      bitClear(shift_outputs, SS_AC_ENABLE);
+      bitClear(shift_outputs, SS_BIKE_ENABLE);
+      bitClear(shift_outputs, SS_AUX_ENABLE);
+  }
+  // AUTOMATIC Mode
+  if (ss_mode == SS_AUTO) {
+    // BIKE > AUX > AC
+    if (ss_bike_available == YES) {
+      ss_source = SS_BIKE;
+      // LEDs
+      bitClear(shift_outputs, SS_AC_LED_GREEN);
+      bitSet(shift_outputs, SS_BIKE_LED_GREEN);
+      bitClear(shift_outputs, SS_AUX_LED_GREEN);
+      // Enable lines
+      bitClear(shift_outputs, SS_AC_ENABLE);
+      bitSet(shift_outputs, SS_BIKE_ENABLE);
+      bitClear(shift_outputs, SS_AUX_ENABLE);
     }
-    // AUTOMATIC Mode
-    if (ss_mode == SS_AUTO) {
-      // BIKE > AUX > AC
-      if (ss_bike_available == YES) {
-        ss_source = SS_BIKE;
-        // LEDs
-        bitClear(shift_outputs, SS_AC_LED_GREEN);
-        bitSet(shift_outputs, SS_BIKE_LED_GREEN);
-        bitClear(shift_outputs, SS_AUX_LED_GREEN);
-        // Enable lines
-        bitClear(shift_outputs, SS_AC_ENABLE);
-        bitSet(shift_outputs, SS_BIKE_ENABLE);
-        bitClear(shift_outputs, SS_AUX_ENABLE);
+    else if (ss_aux_available == YES) {
+      ss_source = SS_AUX;
+      // LEDs
+      bitClear(shift_outputs, SS_AC_LED_GREEN);
+      bitClear(shift_outputs, SS_BIKE_LED_GREEN);
+      bitSet(shift_outputs, SS_AUX_LED_GREEN);
+      // Enable lines
+      bitClear(shift_outputs, SS_AC_ENABLE);
+      bitClear(shift_outputs, SS_BIKE_ENABLE);
+      bitSet(shift_outputs, SS_AUX_ENABLE);     
+    }
+    else if (ss_ac_available == YES) {
+      ss_source = SS_AC;
+      // LEDs
+      bitSet(shift_outputs, SS_AC_LED_GREEN);
+      bitClear(shift_outputs, SS_BIKE_LED_GREEN);
+      bitClear(shift_outputs, SS_AUX_LED_GREEN);
+      // Enable lines
+      bitSet(shift_outputs, SS_AC_ENABLE);
+      bitClear(shift_outputs, SS_BIKE_ENABLE);
+      bitClear(shift_outputs, SS_AUX_ENABLE);      
+    }
+    else {
+      ss_source = SS_NONE;
+      // LEDs
+      bitClear(shift_outputs, SS_AC_LED_GREEN);
+      bitClear(shift_outputs, SS_BIKE_LED_GREEN);
+      bitClear(shift_outputs, SS_AUX_LED_GREEN);
+      // Enable lines
+      bitClear(shift_outputs, SS_AC_ENABLE);
+      bitClear(shift_outputs, SS_BIKE_ENABLE);
+      bitClear(shift_outputs, SS_AUX_ENABLE);
+    }
+  }
+  // MANUAL Mode
+  if (ss_mode == SS_MANU) {
+    if (ss_source == SS_NONE) {
+      // LEDs
+      bitClear(shift_outputs, SS_AC_LED_GREEN);
+      bitClear(shift_outputs, SS_BIKE_LED_GREEN);
+      bitClear(shift_outputs, SS_AUX_LED_GREEN);
+      // Enable lines
+      bitClear(shift_outputs, SS_AC_ENABLE);
+      bitClear(shift_outputs, SS_BIKE_ENABLE);
+      bitClear(shift_outputs, SS_AUX_ENABLE);
+    }
+    else if (ss_source == SS_AC) {
+      // LEDs
+      bitSet(shift_outputs, SS_AC_LED_GREEN);
+      bitClear(shift_outputs, SS_BIKE_LED_GREEN);
+      bitClear(shift_outputs, SS_AUX_LED_GREEN);
+      // Enable lines
+      bitSet(shift_outputs, SS_AC_ENABLE);
+      bitClear(shift_outputs, SS_BIKE_ENABLE);
+      bitClear(shift_outputs, SS_AUX_ENABLE);
+    }      
+    else if (ss_source == SS_BIKE) {
+      // LEDs
+      bitClear(shift_outputs, SS_AC_LED_GREEN);
+      bitSet(shift_outputs, SS_BIKE_LED_GREEN);
+      bitClear(shift_outputs, SS_AUX_LED_GREEN);
+      // Enable lines
+      bitClear(shift_outputs, SS_AC_ENABLE);
+      bitSet(shift_outputs, SS_BIKE_ENABLE);
+      bitClear(shift_outputs, SS_AUX_ENABLE);
+    }
+    else if (ss_source == SS_AUX) {
+      // LEDs
+      bitClear(shift_outputs, SS_AC_LED_GREEN);
+      bitClear(shift_outputs, SS_BIKE_LED_GREEN);
+      bitSet(shift_outputs, SS_AUX_LED_GREEN);
+      // Enable lines
+      bitClear(shift_outputs, SS_AC_ENABLE);
+      bitClear(shift_outputs, SS_BIKE_ENABLE);
+      bitSet(shift_outputs, SS_AUX_ENABLE);
+    }
+  }
+  // Apply changes
+  Update_shift_registers();
+} // Update_SS_Status();
+
+void Update_CC_Status(void) {
+  // OFF Mode
+  if (cc_mode == CC_OFF) {
+    bat_mode = BAT_NOT_CHARGING;
+    cc_duty_cycle = 0;
+    analogWrite(PWM_CC, cc_duty_cycle);
+  }
+  // BAT Mode
+  else if (cc_mode == CC_BAT) {
+    if (bat_mode == BAT_NOT_CHARGING) bat_mode = BAT_CHARGING_CC;
+    if (bat_mode ==  BAT_CHARGING_CC) {
+      // Change mode if max charging voltage reached
+      if (P2_bus_volt > cc_volt_cycle_upper) {
+        bat_mode = BAT_CHARGING_CV;
+        cc_duty_cycle--;
       }
-      else if (ss_aux_available == YES) {
-        ss_source = SS_AUX;
-        // LEDs
-        bitClear(shift_outputs, SS_AC_LED_GREEN);
-        bitClear(shift_outputs, SS_BIKE_LED_GREEN);
-        bitSet(shift_outputs, SS_AUX_LED_GREEN);
-        // Enable lines
-        bitClear(shift_outputs, SS_AC_ENABLE);
-        bitClear(shift_outputs, SS_BIKE_ENABLE);
-        bitSet(shift_outputs, SS_AUX_ENABLE);     
+      // Otherwise regulate voltage and current
+      else if (P6_in_curr > cc_curr_in_max) cc_duty_cycle--;
+      else if (P2_bus_curr > cc_curr_cycle_max) cc_duty_cycle--;
+      else if (P2_bus_curr < cc_curr_cycle_max - 0.05) cc_duty_cycle++;
+    }
+    else if (bat_mode ==  BAT_CHARGING_CV) {
+      // Change mode if current falls below dropout value
+      if (P2_bus_curr < cc_curr_cycle_min) {
+        bat_mode = BAT_STANDBY;
+        cc_duty_cycle--;
       }
-      else if (ss_ac_available == YES) {
-        ss_source = SS_AC;
-        // LEDs
-        bitSet(shift_outputs, SS_AC_LED_GREEN);
-        bitClear(shift_outputs, SS_BIKE_LED_GREEN);
-        bitClear(shift_outputs, SS_AUX_LED_GREEN);
-        // Enable lines
-        bitSet(shift_outputs, SS_AC_ENABLE);
-        bitClear(shift_outputs, SS_BIKE_ENABLE);
-        bitClear(shift_outputs, SS_AUX_ENABLE);      
+      // Otherwise regulate voltage and current
+      else if (P6_in_curr > cc_curr_in_max) cc_duty_cycle--;
+      else if (P2_bus_volt > cc_volt_cycle_upper) cc_duty_cycle--;
+      else if (P2_bus_volt < cc_volt_cycle_lower) cc_duty_cycle++;
+    }
+    else if (bat_mode ==  BAT_STANDBY) {
+      // Regulate voltage and current
+      if (P6_in_curr > cc_curr_in_max) cc_duty_cycle--;
+      else if (P2_bus_volt > cc_volt_standby_upper) cc_duty_cycle--;
+      else if (P2_bus_volt < cc_volt_standby_lower) cc_duty_cycle++;
+    }
+  }
+  // OTHER Modes
+  else {
+    // HIGH Voltage Regulation Mode
+    if (cc_mode == CC_HIGH) {
+      bat_mode = BAT_NOT_CHARGING;
+      if (P2_bus_curr > cc_curr_out_max) cc_duty_cycle--;
+      else if (P6_in_curr > cc_curr_in_max) cc_duty_cycle--;
+      else if (P2_bus_volt > (cc_volt_high+0.1)) cc_duty_cycle--;
+      else if (P2_bus_volt < (cc_volt_high-0.1)) cc_duty_cycle++;
+    }
+    // LOW Voltage Regulation Mode
+    if (cc_mode == CC_LOW) {
+      bat_mode = BAT_NOT_CHARGING;  
+      if (P2_bus_curr > cc_curr_out_max) cc_duty_cycle--;
+      else if (P6_in_curr > cc_curr_in_max) cc_duty_cycle--;
+      else if (P2_bus_volt > (cc_volt_low+0.1)) cc_duty_cycle--;
+      else if (P2_bus_volt < (cc_volt_low-0.1)) cc_duty_cycle++;
+    }
+    // FINE Adjustment Mode
+    if (cc_mode == CC_FINE) {
+      bat_mode = BAT_NOT_CHARGING;
+      cc_duty_cycle = (int)ADC_cc_pot >> 2; // 10-bit to 8-bit conversion
+    }
+    // COURSE Adjustment Mode
+    if (cc_mode == CC_CRSE) {
+      bat_mode = BAT_NOT_CHARGING;
+      if (cc_down_button == HIGH) {
+        cc_duty_cycle -= cc_duty_cycle_crse_step;
       }
-      else {
-        ss_source = SS_NONE;
-        // LEDs
-        bitClear(shift_outputs, SS_AC_LED_GREEN);
-        bitClear(shift_outputs, SS_BIKE_LED_GREEN);
-        bitClear(shift_outputs, SS_AUX_LED_GREEN);
-        // Enable lines
-        bitClear(shift_outputs, SS_AC_ENABLE);
-        bitClear(shift_outputs, SS_BIKE_ENABLE);
-        bitClear(shift_outputs, SS_AUX_ENABLE);
+      else if (cc_up_button == HIGH) {
+        cc_duty_cycle += cc_duty_cycle_crse_step;
       }
     }
-    // MANUAL Mode
-    if (ss_mode == SS_MANU) {
-      if (ss_source == SS_NONE) {
-        // LEDs
-        bitClear(shift_outputs, SS_AC_LED_GREEN);
-        bitClear(shift_outputs, SS_BIKE_LED_GREEN);
-        bitClear(shift_outputs, SS_AUX_LED_GREEN);
-        // Enable lines
-        bitClear(shift_outputs, SS_AC_ENABLE);
-        bitClear(shift_outputs, SS_BIKE_ENABLE);
-        bitClear(shift_outputs, SS_AUX_ENABLE);
-      }
-      else if (ss_source == SS_AC) {
-        // LEDs
-        bitSet(shift_outputs, SS_AC_LED_GREEN);
-        bitClear(shift_outputs, SS_BIKE_LED_GREEN);
-        bitClear(shift_outputs, SS_AUX_LED_GREEN);
-        // Enable lines
-        bitSet(shift_outputs, SS_AC_ENABLE);
-        bitClear(shift_outputs, SS_BIKE_ENABLE);
-        bitClear(shift_outputs, SS_AUX_ENABLE);
-      }      
-      else if (ss_source == SS_BIKE) {
-        // LEDs
-        bitClear(shift_outputs, SS_AC_LED_GREEN);
-        bitSet(shift_outputs, SS_BIKE_LED_GREEN);
-        bitClear(shift_outputs, SS_AUX_LED_GREEN);
-        // Enable lines
-        bitClear(shift_outputs, SS_AC_ENABLE);
-        bitSet(shift_outputs, SS_BIKE_ENABLE);
-        bitClear(shift_outputs, SS_AUX_ENABLE);
-      }
-      else if (ss_source == SS_AUX) {
-        // LEDs
-        bitClear(shift_outputs, SS_AC_LED_GREEN);
-        bitClear(shift_outputs, SS_BIKE_LED_GREEN);
-        bitSet(shift_outputs, SS_AUX_LED_GREEN);
-        // Enable lines
-        bitClear(shift_outputs, SS_AC_ENABLE);
-        bitClear(shift_outputs, SS_BIKE_ENABLE);
-        bitSet(shift_outputs, SS_AUX_ENABLE);
-      }
-    }
-    // Apply changes
-    Update_shift_registers();
-}
+    // Clamp duty cycle from 0 to max value
+    if (cc_duty_cycle < 0) cc_duty_cycle = 0;
+    if (cc_duty_cycle > cc_duty_cycle_max) cc_duty_cycle = cc_duty_cycle_max;
+
+  }
+  analogWrite(PWM_CC, cc_duty_cycle);
+
+/*
+cc_mode
+bat_mode
+  // Charge controller  
+#define CC_OFF  "off "
+#define CC_BAT  "bat "
+#define CC_HIGH "high"
+#define CC_LOW  "low "
+#define CC_FINE "fine"
+#define CC_CRSE "crse"
+// Load selector
+#define LS_OFF  "off "
+#define LS_BAT  "bat "
+#define LS_AUX  "aux "
+// Alternator controller
+#define AC_OFF  "off "
+#define AC_ON   "on  "
+// Battery states
+#define BAT_NOT_CHARGING "not "
+#define BAT_CHARGING_CC  "cc  "
+#define BAT_CHARGING_CV  "cv  "
+#define BAT_STANDBY      "stby"
+
+const float cc_volt_cycle_upper = 14.8; // Charging voltage upper bound
+const float cc_volt_cycle_lower = 14.6; // Charging voltage lower bound
+const float cc_volt_standby_upper = 13.8; // Standby voltage upper bound
+const float cc_volt_standby_lower = 13.6; // Standby voltage upper bound
+const float cc_curr_cycle_max = 1; // Max charging current, units of amps
+const float cc_curr_cycle_min = 0.1; // Min charging current before considered fully charged, units of amps
+const float cc_volt_high = 14; // High mode voltage, units of volts
+const float cc_volt_low = 13.5; // Low mode voltage, units of volts
+*/
+} // Update_CC_Status
 
