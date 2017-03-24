@@ -320,7 +320,7 @@ void loop() {
     Calculate_Power_Measurements();
     LCD_print_power_measurements();
 
-    ave += P5_dc_curr;
+    ave += P6_in_volt;
 
 
 
@@ -343,7 +343,7 @@ void loop() {
     */
     Serial.print(loop);
     Serial.print("\n================\n");
-    delay(2000);
+    delay(500);
     }
     Serial.print("================\n");
     Serial.print(ave/10.0, 2);
@@ -1147,7 +1147,33 @@ void Get_Analog_Measurements(void) {
   const float ADC_ss_aux_scale  = 0.065485;
   const float ADC_cc_pot_scale  = 5/1023.0;
 
-  
+  // Slopes
+  // ======
+  // Voltage Measurements Slopes
+  // ---------------------------
+  // Power Measurement #1
+  const float P1_aux_volt_slope_1  = 0.032909;
+  const float P1_aux_volt_slope_2  = 0.033947;
+  const float P1_aux_volt_slope_3  = 0.033559;
+  const float P1_aux_volt_slope_4  = 0.033707;
+  // Power Measurement #2
+  const float P2_bus_volt_slope_1  = 0.034060;
+  const float P2_bus_volt_slope_2  = 0.033837;
+  const float P2_bus_volt_slope_3  = 0.033784;
+  const float P2_bus_volt_slope_4  = 0.033784;
+ // Power Measurement #5
+  const float P5_dc_volt_slope_1   = 0.034014;
+  const float P5_dc_volt_slope_2   = 0.033976;
+  const float P5_dc_volt_slope_3   = 0.033784;
+  const float P5_dc_volt_slope_4   = 0.033784;
+  // Power Measurement #6
+  const float P6_in_volt_slope_1   = 0.053706;
+  const float P6_in_volt_slope_2   = 0.053312;
+  const float P6_in_volt_slope_3   = 0.053332;
+  const float P6_in_volt_slope_4   = 0.053191;
+    
+  // Current Measurement Slopes
+  // --------------------------
   // Power Measurement #1
   const float P1_aux_curr_slope_1  = 0.010000;
   const float P1_aux_curr_slope_2  = 0.010030;
@@ -1185,9 +1211,33 @@ void Get_Analog_Measurements(void) {
   const float P6_in_curr_slope_4   = 0.010000;
   const float P6_in_curr_slope_5   = 0.009903;
 
-  
- 
-
+  // Intercepts
+  // ==========
+  // Voltage Measurement Intercepts
+  // ------------------------------
+  // Power Measurement #1
+  const float P1_aux_volt_intercept_1 = 0.115401;
+  const float P1_aux_volt_intercept_2 = 0.087508;
+  const float P1_aux_volt_intercept_3 = 0.200685;
+  const float P1_aux_volt_intercept_4 = 0.135503;
+  // Power Measurement #2
+  const float P2_bus_volt_intercept_1 = 0.113760;
+  const float P2_bus_volt_intercept_2 = 0.119558;
+  const float P2_bus_volt_intercept_3 = 0.135135;
+  const float P2_bus_volt_intercept_4 = 0.135135;
+  // Power Measurement #5
+  const float P5_dc_volt_intercept_1  = 0.111905;
+  const float P5_dc_volt_intercept_2  = 0.112877;
+  const float P5_dc_volt_intercept_3  = 0.168919;
+  const float P5_dc_volt_intercept_4  = 0.168919;
+  // Power Measurement #6 
+  const float P6_in_volt_intercept_1  = 0.124060;
+  const float P6_in_volt_intercept_2  = 0.137812;
+  const float P6_in_volt_intercept_3  = 0.134130;
+  const float P6_in_volt_intercept_4  = 0.212766;
+     
+  // Current Measurement Intercepts
+  // ------------------------------
   // Power Measurement #1
   const float P1_aux_curr_intercept_1 =-0.006300;
   const float P1_aux_curr_intercept_2 =-0.006770;
@@ -1227,7 +1277,33 @@ void Get_Analog_Measurements(void) {
 
 
   // Upper Bounds for Ranges
-  // -----------------------
+  // =======================
+  // Voltage Measurement Bounds
+  // --------------------------
+  // Power Measurement #1
+  const float P1_aux_volt_bound_0 = 4.09;
+  const float P1_aux_volt_bound_1 = 26.88;
+  const float P1_aux_volt_bound_2 = 292;
+  const float P1_aux_volt_bound_3 = 440.99;
+  // Power Measurement #2
+  const float P2_bus_volt_bound_0 = 4;
+  const float P2_bus_volt_bound_1 = 26.02;
+  const float P2_bus_volt_bound_2 = 292;
+  const float P2_bus_volt_bound_3 = 440;
+  // Power Measurement #5
+  const float P5_dc_volt_bound_0  = 4.06;
+  const float P5_dc_volt_bound_1  = 26.11;
+  const float P5_dc_volt_bound_2  = 291;
+  const float P5_dc_volt_bound_3  = 439;
+  // Power Measurement #6
+  const float P6_in_volt_bound_0  = 7;
+  const float P6_in_volt_bound_1  = 34.93;
+  const float P6_in_volt_bound_2  = 184.99;
+  const float P6_in_volt_bound_3  = 560;
+
+    
+  // Current Measurement Bounds
+  // --------------------------
   // Power Measurement #1
   const float P1_aux_curr_bound_0 = 5.63;
   const float P1_aux_curr_bound_1 = 15.63;
@@ -1258,7 +1334,7 @@ void Get_Analog_Measurements(void) {
   const float P5_dc_curr_bound_2  = 28.4;
   const float P5_dc_curr_bound_3  = 52.71;
   const float P5_dc_curr_bound_4  = 102.25;
-  // Power Measurement #2
+  // Power Measurement #6
   const float P6_in_curr_bound_0  = 1.9;
   const float P6_in_curr_bound_1  = 12;
   const float P6_in_curr_bound_2  = 21.85;
@@ -1279,8 +1355,12 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A0);
   }
-  P1_aux_volt = P1_aux_volt_scale*(ADC_sum/num_samples);
-  if (P1_aux_volt < 0) P1_aux_volt = 0;
+  P1_aux_volt = ADC_sum/num_samples;
+  if (P1_aux_volt < P1_aux_volt_bound_0) P1_aux_volt = 0;
+  else if (P1_aux_volt < P1_aux_volt_bound_1) P1_aux_volt = P1_aux_volt_slope_1*P1_aux_volt + P1_aux_volt_intercept_1;
+  else if (P1_aux_volt < P1_aux_volt_bound_2) P1_aux_volt = P1_aux_volt_slope_2*P1_aux_volt + P1_aux_volt_intercept_2;
+  else if (P1_aux_volt < P1_aux_volt_bound_3) P1_aux_volt = P1_aux_volt_slope_3*P1_aux_volt + P1_aux_volt_intercept_3;
+  else P1_aux_volt = P1_aux_volt_slope_4*P1_aux_volt + P1_aux_volt_intercept_4;
   Serial.print("P1_aux_volt = "); Serial.print(P1_aux_volt,5); Serial.print("\n");
   
   // Get channel 2 measurement
@@ -1338,8 +1418,12 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A0);
   }
-  P2_bus_volt = P2_bus_volt_scale*(ADC_sum/num_samples);
-  if (P2_bus_volt < 0) P2_bus_volt = 0;
+  P2_bus_volt = ADC_sum/num_samples;
+  if (P2_bus_volt < P2_bus_volt_bound_0) P2_bus_volt = 0;
+  else if (P2_bus_volt < P2_bus_volt_bound_1) P2_bus_volt = P2_bus_volt_slope_1*P2_bus_volt + P2_bus_volt_intercept_1;
+  else if (P2_bus_volt < P2_bus_volt_bound_2) P2_bus_volt = P2_bus_volt_slope_2*P2_bus_volt + P2_bus_volt_intercept_2;
+  else if (P2_bus_volt < P2_bus_volt_bound_3) P2_bus_volt = P2_bus_volt_slope_3*P2_bus_volt + P2_bus_volt_intercept_3;
+  else P2_bus_volt = P2_bus_volt_slope_4*P2_bus_volt + P2_bus_volt_intercept_4;
   Serial.print("P2_bus_volt = "); Serial.print(P2_bus_volt,5); Serial.print("\n");
   
   // Get channel 2 measurement
@@ -1392,8 +1476,12 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A0);
   }
-  P5_dc_volt = P5_dc_volt_scale*(ADC_sum/num_samples);
-  if (P5_dc_volt < 0) P5_dc_volt = 0;
+  P5_dc_volt = ADC_sum/num_samples;
+  if (P5_dc_volt < P5_dc_volt_bound_0) P5_dc_volt = 0;
+  else if (P5_dc_volt < P5_dc_volt_bound_1) P5_dc_volt = P5_dc_volt_slope_1*P5_dc_volt + P5_dc_volt_intercept_1;
+  else if (P5_dc_volt < P5_dc_volt_bound_2) P5_dc_volt = P5_dc_volt_slope_2*P5_dc_volt + P5_dc_volt_intercept_2;
+  else if (P5_dc_volt < P5_dc_volt_bound_3) P5_dc_volt = P5_dc_volt_slope_3*P5_dc_volt + P5_dc_volt_intercept_3;
+  else P5_dc_volt = P5_dc_volt_slope_4*P5_dc_volt + P5_dc_volt_intercept_4;
   Serial.print("P5_dc_volt = "); Serial.print(P5_dc_volt,5); Serial.print("\n");
   
   // Get channel 2 measurement
@@ -1451,8 +1539,12 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A0);
   }
-  P6_in_volt = P6_in_volt_scale*(ADC_sum/num_samples);
-  if (P6_in_volt < 0) P6_in_volt = 0;
+  P6_in_volt = ADC_sum/num_samples;
+  if (P6_in_volt < P6_in_volt_bound_0) P6_in_volt = 0;
+  else if (P6_in_volt < P6_in_volt_bound_1) P6_in_volt = P6_in_volt_slope_1*P6_in_volt + P6_in_volt_intercept_1;
+  else if (P6_in_volt < P6_in_volt_bound_2) P6_in_volt = P6_in_volt_slope_2*P6_in_volt + P6_in_volt_intercept_2;
+  else if (P6_in_volt < P6_in_volt_bound_3) P6_in_volt = P6_in_volt_slope_3*P6_in_volt + P6_in_volt_intercept_3;
+  else P6_in_volt = P6_in_volt_slope_4*P6_in_volt + P6_in_volt_intercept_4;
   Serial.print("P6_in_volt = "); Serial.print(P6_in_volt,5); Serial.print("\n");
   
   // Get channel 2 measurement
