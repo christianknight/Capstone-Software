@@ -2,38 +2,31 @@
 #include <Wire.h>   // i2c library
 #include <LiquidCrystal_I2C.h>  // LCD library
 
+// Digital I/O Pin Mapping
+// -----------------------
 // SPI Pins
 #define SPI_CLOCK 13  // Cannot be changed
 #define SPI_DATA  11  // Cannot be changed
-
 // Shift register pins
 #define SHIFT_ENABLE  5 
 #define SHIFT_LATCH   4
 #define SHIFT_READ    3   // Interrupt pin
-
 // 4:1 Analog MUX pins
 #define MUX_S1 12
 #define MUX_S0 8
-
-// ADC pins
-#define FINE_PIN A3 // Analog pin for precise duty cycle control
-#define VOUT_PIN A2 // Analog pin on output of charge controller
-#define ALT_CURR_PIN A1 // Analog pin for alternator field winding current
-
 // Load selector pins
-#define LS_BAT_ENABLE 7
-#define LS_AUX_ENABLE 8
-
+//#define LS_BAT_ENABLE 7
+//#define LS_AUX_ENABLE 8
 // PWM pins
 // Using pins 9 and 10 for PWM since this does not affect the delay() and millis() functions
 #define PWM_AC 10 // PWM pin for alternator controller
 #define PWM_CC 9  // PWM pin for charge controller
-
 // Settings button
 #define SETTINGS_BUTTON 2;
 
 // Shift register mapping
 // ----------------------
+// Note: Commented numbers refer to pin designation on "Interface_Mapping.jpeg"
 // Byte 5
 // ------
 #define CC_OFF_BUTTON       23 // 48
@@ -73,7 +66,7 @@
 #define CC_FINE_LED_GREEN   19 // 20
 #define CC_CRSE_LED_GREEN   18 // 19
 #define SS_OFF_LED_RED      17 // 18
-// Bit #16 not used
+#define LS_AUX_ENABLE       16 // 17
 // Byte 1
 // ------
 #define SS_AUTO_LED_GREEN   15 // 16
@@ -83,17 +76,17 @@
 #define SS_BIKE_LED_GREEN   11 // 12
 #define SS_BIKE_LED_YELLOW  10 // 11
 #define SS_AUX_LED_GREEN    9 // 10
-// Bit #8 not used
+#define LS_BAT_ENABLE       8 // 9
 // Byte 0
 // ------
 #define SS_AUX_LED_YELLOW   7 // 8
 #define AC_EN_LED_GREEN     6 // 7
-// Bit #5 not mapped
+#define SS_AC_ENABLE        5 // 6
 #define LS_OFF_LED_RED      4 // 5
 #define LS_BAT_LED_GREEN    3 // 4
 #define LS_AUX_LED_GREEN    2 // 3
-// Bit #1 not used
-// Bit #0 not used
+#define SS_AUX_ENABLE       1 // 2
+#define SS_BIKE_ENABLE      0 // 1
   
 // Operating mode and state holder constants
 // -----------------------------------------
@@ -119,10 +112,24 @@
 // Alternator controller
 #define AC_OFF  "off "
 #define AC_ON   "on  "
+// Miscellaneous
+#define YES 1
+#define NO 0
+
+// ==============================================================================================
 
 // Operating mode and stator holder variables
+// ==========================================
+// Source Selector
+// ---------------
 String ss_mode = SS_OFF;     // Current source selector mode
-String ss_source = SS_NONE;  // Current source selector active soruce
+String ss_source = SS_NONE;  // Current source selector active source
+// Source availability, based on the voltage value
+bool ss_ac_available = NO;
+bool ss_bike_available = NO;
+bool ss_aux_available = NO;
+// Charge Controller
+// -----------------
 String cc_mode = CC_OFF;     // Current charge controller mode
 String ls_mode = LS_OFF;     // Current load selector mode
 String ac_mode = AC_OFF;     // Current charge controller mode
@@ -153,10 +160,12 @@ bool ls_aux_button = 0;
 // Alternator controller
 bool ac_en_button = 0;
 
+/*
 float val_1 = 0;
 float val_2 = 0;
 float val_3 = 0;
 float val_4 = 0;
+*/
 
 // Analog measurement variables
 // -----------------------------
@@ -210,10 +219,11 @@ uint8_t LCD_row_efficiency = 4;
 uint8_t LCD_row_vout = 4;
 uint8_t LCD_row_alt_curr = 4;
 
-// Duty cycle variables
-const uint8_t duty_cycle_max = 255*0.25; // Max duty cycle value of 25%, rounded down for byte data type
-const uint8_t duty_cycle_crse_step = 1; // Duty cycle increment/decrement value for course mode
-uint8_t duty_cycle = 0;
+// Charge controller duty cycle variables
+const uint8_t cc_duty_cycle_max = 255*0.25; // Max duty cycle value of 25%, rounded down for byte data type
+const uint8_t cc_duty_cycle_crse_step = 1; // Duty cycle increment/decrement value for course mode
+signed short cc_duty_cycle = 0; // Signed so that if decremented below zero, easy to set equal to zero
+float cc_duty_cycle_percent = 0; // Duty cycle expressed as a percent
 
 // Shift register variables
 uint32_t shift_buttons = 0;
@@ -222,8 +232,220 @@ uint32_t shift_outputs = 0;
 // Miscellaneous variables
 float efficiency = 75.8; // Charge controller efficiency
 float vout = 0; // Charge controller output voltage
-float alt_curr = 0; // Alternator field winding current
+const uint8_t ac_duty_cycle = 10; // Alternator current contoller duty cycle [0-255]
 bool error = 0; // error flag
+float ss_min_volt = 8; // Minimum voltage for source to be considered available, units of volts
+
+// Analog Measurement Constant Variables
+  // =====================================
+  // =====================================
+  const float ADC_scale = 5/1023.0/num_samples;
+  
+  // Measurement scales
+  // ------------------
+  // Power Measurement #2
+  const float ADC_ac_curr_scale = 0.003164;
+  const float ADC_cc_volt_scale = 0.021081;
+  const float ADC_cc_pot_scale  = 5/1023.0;
+  const float ADC_ss_ac_scale   = 0.066641;
+  const float ADC_ss_bike_scale = 0.068046;
+  const float ADC_ss_aux_scale  = 0.065485;
+
+  // Slopes
+  // ======
+  // Voltage Measurements Slopes
+  // ---------------------------
+  // Power Measurement #1
+  const float P1_aux_volt_slope_1  = 0.032909;
+  const float P1_aux_volt_slope_2  = 0.033947;
+  const float P1_aux_volt_slope_3  = 0.033559;
+  const float P1_aux_volt_slope_4  = 0.033707;
+  // Power Measurement #2
+  const float P2_bus_volt_slope_1  = 0.034060;
+  const float P2_bus_volt_slope_2  = 0.033837;
+  const float P2_bus_volt_slope_3  = 0.033784;
+  const float P2_bus_volt_slope_4  = 0.033784;
+ // Power Measurement #5
+  const float P5_dc_volt_slope_1   = 0.034014;
+  const float P5_dc_volt_slope_2   = 0.033976;
+  const float P5_dc_volt_slope_3   = 0.033784;
+  const float P5_dc_volt_slope_4   = 0.033784;
+  // Power Measurement #6
+  const float P6_in_volt_slope_1   = 0.053706;
+  const float P6_in_volt_slope_2   = 0.053312;
+  const float P6_in_volt_slope_3   = 0.053332;
+  const float P6_in_volt_slope_4   = 0.053191;
+    
+  // Current Measurement Slopes
+  // --------------------------
+  // Power Measurement #1
+  const float P1_aux_curr_slope_1  = 0.010000;
+  const float P1_aux_curr_slope_2  = 0.010030;
+  const float P1_aux_curr_slope_3  = 0.010101;
+  const float P1_aux_curr_slope_4  = 0.009992;
+  const float P1_aux_curr_slope_5  = 0.009957;
+  // Power Measurement #2
+  const float P2_bus_curr_slope_1  = 0.009930;
+  const float P2_bus_curr_slope_2  = 0.010173;
+  const float P2_bus_curr_slope_3  = 0.010040;
+  const float P2_bus_curr_slope_4  = 0.009925;
+  const float P2_bus_curr_slope_5  = 0.009914;
+ // Power Measurement #3
+  const float P3_sys_curr_slope_1  = 0.010010;
+  const float P3_sys_curr_slope_2  = 0.009891;
+  const float P3_sys_curr_slope_3  = 0.010089;
+  const float P3_sys_curr_slope_4  = 0.009907;
+  const float P3_sys_curr_slope_5  = 0.009872;
+ // Power Measurement #4
+  const float P4_ac_curr_slope_1   = 0.010091;
+  const float P4_ac_curr_slope_2   = 0.010101;
+  const float P4_ac_curr_slope_3   = 0.010146;
+  const float P4_ac_curr_slope_4   = 0.010012;
+  const float P4_ac_curr_slope_5   = 0.009947;
+ // Power Measurement #5
+  const float P5_dc_curr_slope_1   = 0.010132;
+  const float P5_dc_curr_slope_2   = 0.010132;
+  const float P5_dc_curr_slope_3   = 0.010284;
+  const float P5_dc_curr_slope_4   = 0.010093;
+  const float P5_dc_curr_slope_5   = 0.010045;
+  // Power Measurement #6
+  const float P6_in_curr_slope_1   = 0.009901;
+  const float P6_in_curr_slope_2   = 0.010152;
+  const float P6_in_curr_slope_3   = 0.010020;
+  const float P6_in_curr_slope_4   = 0.010000;
+  const float P6_in_curr_slope_5   = 0.009903;
+
+  // Intercepts
+  // ==========
+  // Voltage Measurement Intercepts
+  // ------------------------------
+  // Power Measurement #1
+  const float P1_aux_volt_intercept_1 = 0.115401;
+  const float P1_aux_volt_intercept_2 = 0.087508;
+  const float P1_aux_volt_intercept_3 = 0.200685;
+  const float P1_aux_volt_intercept_4 = 0.135503;
+  // Power Measurement #2
+  const float P2_bus_volt_intercept_1 = 0.113760;
+  const float P2_bus_volt_intercept_2 = 0.119558;
+  const float P2_bus_volt_intercept_3 = 0.135135;
+  const float P2_bus_volt_intercept_4 = 0.135135;
+  // Power Measurement #5
+  const float P5_dc_volt_intercept_1  = 0.111905;
+  const float P5_dc_volt_intercept_2  = 0.112877;
+  const float P5_dc_volt_intercept_3  = 0.168919;
+  const float P5_dc_volt_intercept_4  = 0.168919;
+  // Power Measurement #6 
+  const float P6_in_volt_intercept_1  = 0.124060;
+  const float P6_in_volt_intercept_2  = 0.137812;
+  const float P6_in_volt_intercept_3  = 0.134130;
+  const float P6_in_volt_intercept_4  = 0.212766;
+     
+  // Current Measurement Intercepts
+  // ------------------------------
+  // Power Measurement #1
+  const float P1_aux_curr_intercept_1 =-0.006300;
+  const float P1_aux_curr_intercept_2 =-0.006770;
+  const float P1_aux_curr_intercept_3 =-0.008586;
+  const float P1_aux_curr_intercept_4 =-0.003098;
+  const float P1_aux_curr_intercept_5 = 0.000398; 
+  // Power Measurement #2
+  const float P2_bus_curr_intercept_1 = 0.025869;
+  const float P2_bus_curr_intercept_2 = 0.022838;
+  const float P2_bus_curr_intercept_3 = 0.025803;
+  const float P2_bus_curr_intercept_4 = 0.031262;
+  const float P2_bus_curr_intercept_5 = 0.032271; 
+  // Power Measurement #3
+  const float P3_sys_curr_intercept_1 = 0.025776;
+  const float P3_sys_curr_intercept_2 = 0.027250;
+  const float P3_sys_curr_intercept_3 = 0.022800;
+  const float P3_sys_curr_intercept_4 = 0.031405;
+  const float P3_sys_curr_intercept_5 = 0.034776; 
+  // Power Measurement #4
+  const float P4_ac_curr_intercept_1  =-0.000858;
+  const float P4_ac_curr_intercept_2  =-0.001010;
+  const float P4_ac_curr_intercept_3  =-0.002131;
+  const float P4_ac_curr_intercept_4  = 0.004505;
+  const float P4_ac_curr_intercept_5  = 0.010942;
+  // Power Measurement #5
+  const float P5_dc_curr_intercept_1  =-0.037741;
+  const float P5_dc_curr_intercept_2  =-0.037741;
+  const float P5_dc_curr_intercept_3  =-0.042061;
+  const float P5_dc_curr_intercept_4  =-0.031994;
+  const float P5_dc_curr_intercept_5  =-0.027070;
+  // Power Measurement #6 
+  const float P6_in_curr_intercept_1  = 0.031188;
+  const float P6_in_curr_intercept_2  = 0.028173;
+  const float P6_in_curr_intercept_3  = 0.031062;
+  const float P6_in_curr_intercept_4  = 0.032000;
+  const float P6_in_curr_intercept_5  = 0.041347;
+
+
+  // Upper Bounds for Ranges
+  // =======================
+  // Voltage Measurement Bounds
+  // --------------------------
+  // Power Measurement #1
+  const float P1_aux_volt_bound_0 = 4.09;
+  const float P1_aux_volt_bound_1 = 26.88;
+  const float P1_aux_volt_bound_2 = 292;
+  const float P1_aux_volt_bound_3 = 440.99;
+  // Power Measurement #2
+  const float P2_bus_volt_bound_0 = 4;
+  const float P2_bus_volt_bound_1 = 26.02;
+  const float P2_bus_volt_bound_2 = 292;
+  const float P2_bus_volt_bound_3 = 440;
+  // Power Measurement #5
+  const float P5_dc_volt_bound_0  = 4.06;
+  const float P5_dc_volt_bound_1  = 26.11;
+  const float P5_dc_volt_bound_2  = 291;
+  const float P5_dc_volt_bound_3  = 439;
+  // Power Measurement #6
+  const float P6_in_volt_bound_0  = 7;
+  const float P6_in_volt_bound_1  = 34.93;
+  const float P6_in_volt_bound_2  = 184.99;
+  const float P6_in_volt_bound_3  = 560;
+
+  // Current Measurement Bounds
+  // --------------------------
+  // Power Measurement #1
+  const float P1_aux_curr_bound_0 = 5.63;
+  const float P1_aux_curr_bound_1 = 15.63;
+  const float P1_aux_curr_bound_2 = 25.6;
+  const float P1_aux_curr_bound_3 = 50.35;
+  const float P1_aux_curr_bound_4 = 100.39;
+  // Power Measurement #2
+  const float P2_bus_curr_bound_0 = 2.43;
+  const float P2_bus_curr_bound_1 = 12.5;
+  const float P2_bus_curr_bound_2 = 22.33;
+  const float P2_bus_curr_bound_3 = 47.23;
+  const float P2_bus_curr_bound_4 = 97.61;
+  // Power Measurement #3
+  const float P3_sys_curr_bound_0 = 2.42;
+  const float P3_sys_curr_bound_1 = 12.41;
+  const float P3_sys_curr_bound_2 = 22.52;
+  const float P3_sys_curr_bound_3 = 47.3;
+  const float P3_sys_curr_bound_4 = 97.77;
+  // Power Measurement #4
+  const float P4_ac_curr_bound_0  = 5.04;
+  const float P4_ac_curr_bound_1  = 14.95;
+  const float P4_ac_curr_bound_2  = 24.85;
+  const float P4_ac_curr_bound_3  = 49.49;
+  const float P4_ac_curr_bound_4  = 99.43;
+  // Power Measurement #5
+  const float P5_dc_curr_bound_0  = 8.66;
+  const float P5_dc_curr_bound_1  = 18.53;
+  const float P5_dc_curr_bound_2  = 28.4;
+  const float P5_dc_curr_bound_3  = 52.71;
+  const float P5_dc_curr_bound_4  = 102.25;
+  // Power Measurement #6
+  const float P6_in_curr_bound_0  = 1.9;
+  const float P6_in_curr_bound_1  = 12;
+  const float P6_in_curr_bound_2  = 21.85;
+  const float P6_in_curr_bound_3  = 46.8;
+  const float P6_in_curr_bound_4  = 96.8;
+
+
+// ==============================================================================================
 
 void setup() {
   // Serial Communitication Initialization
@@ -277,7 +499,6 @@ void setup() {
   TCCR1B = TCCR1B & 0xF9;  // Set the PWM frequency on pin 9 and 10 to 31.250kHz
 
   // LCD Initializations
-  // -------------------
   //lcd_1.noBacklight(); // turn off backlight
   lcd_1.init();  // initialize the lcd
   lcd_2.init();  // initialize the lcd
@@ -288,9 +509,7 @@ void setup() {
   lcd_1.backlight(); // turn on backlight
   lcd_2.backlight(); // turn on backlight
   lcd_3.backlight(); // turn on backlight
-}
-
-void loop() {
+  
   // Clear previous shift register contents and enable output
   Update_shift_registers();
   digitalWrite(SHIFT_ENABLE, HIGH);
@@ -306,122 +525,50 @@ void loop() {
   Turn_buttons_on(); // Turn on push buttons
   attachInterrupt(1, ISP_Button_Press, RISING);  // Set up interrupt for push buttons
 
-  //analogWrite(PWM_AC, 2);
+}
 
-  
+// ==============================================================================================
 
-  while(1) {
-
-    int loop;
-    float ave = 0;
-    for (loop = 0; loop < 10; loop++) {
-
+void loop() {
+ 
     Get_Analog_Measurements();
     Calculate_Power_Measurements();
     LCD_print_power_measurements();
 
-    ave += P6_in_volt;
+    LCD_print_cc_info();
+    //Serial.print(cc_duty_cycle); Serial.print("\n");
+    //analogWrite(PWM_CC, cc_duty_cycle);
 
+    Update_SS_Status();
 
-
-    /*
-    LCD_clear_row(1); // Clear row
-    lcd_1.setCursor(0, 0); // Reset cursor
-    lcd_1.print(" Val 1 = "); lcd_1.print(val_1, 5);
-    
-    LCD_clear_row(2); // Clear row
-    lcd_1.setCursor(0, 1); // Reset cursor
-    lcd_1.print(" Val 2 = "); lcd_1.print(val_2, 5);
-    
-    LCD_clear_row(3); // Clear row
-    lcd_1.setCursor(0, 2); // Reset cursor
-    lcd_1.print(" Val 3 = "); lcd_1.print(val_3, 5);
-    
-    LCD_clear_row(4); // Clear row
-    lcd_1.setCursor(0, 3); // Reset cursor
-    lcd_1.print(" Val 4 = "); lcd_1.print(val_4, 5);
-    */
-    Serial.print(loop);
-    Serial.print("\n================\n");
     delay(500);
-    }
-    Serial.print("================\n");
-    Serial.print(ave/10.0, 2);
-    Serial.print("\n================\n");
-    Serial.print("================\n");
 
-  }
 }
 
-
-
-
-// Duty cycle functions
-// --------------------
-
-// Read and update duty cycle value based on the potentiometer measurement
-void Update_duty_cycle_fine(void) {
-  duty_cycle = analogRead(FINE_PIN)>>2; // Convert from 10-bit to 8-bit value
-  if (duty_cycle > duty_cycle_max) // Clamp duty cycle to acceptable range
-    duty_cycle = duty_cycle_max;
-} //Update_duty_cycle_fine
-
-
+// ==============================================================================================
 
 // LCD functions
 // -------------
+void LCD_print_cc_info(void) {
+  lcd_1.clear();
+  lcd_1.print(" Charge Controller  ");
+  lcd_1.setCursor(0, 1);
+  lcd_1.print("Bat Status: ");
 
-/*
-// Print the duty cycle to the LCD
-void LCD_print_duty_cycle(void) {
-  LCD_clear_row(LCD_row_duty_cycle); // Clear row
-  lcd_1.setCursor(0, LCD_row_duty_cycle-1); // Reset cursor
-  // If value is less than 10% add extra padding to string
-  if (((float) duty_cycle/255 * 100) < 10) {
-    lcd_1.print(" Duty Cycle =  "); lcd_1.print((float) duty_cycle/255 * 100, 1); lcd_1.print("%");
-  }
-  else {
-    lcd_1.print(" Duty Cycle = "); lcd_1.print((float) duty_cycle/255 * 100, 1); lcd_1.print("%");
-  }
-} // LCD_print_duty_cycle
+  lcd_1.setCursor(0, 2);
+  lcd_1.print("Duty Cycle: ");
+  cc_duty_cycle_percent = cc_duty_cycle*100.0/255.0; 
+  Serial.print(cc_duty_cycle_percent); Serial.print("\n");
+  if (cc_duty_cycle_percent < 100) lcd_1.print("0");
+  if (cc_duty_cycle_percent < 10) lcd_1.print("0");
+  lcd_1.print(cc_duty_cycle_percent, 1);
+  lcd_1.print("%");
 
-// Print the efficiency to the LCD
-void LCD_print_efficiency(void) {
-  LCD_clear_row(LCD_row_efficiency); // Clear row
-  lcd_1.setCursor(0, LCD_row_efficiency-1); // Reset cursor
-  if (efficiency < 10) {
-    lcd_1.print(" Efficiency =  "); lcd_1.print(efficiency,1); lcd_1.print("%");
-  }
-  else {
-    lcd_1.print(" Efficiency = "); lcd_1.print(efficiency,1); lcd_1.print("%");
-  }
-} // LCD_print_efficiency
+  lcd_1.setCursor(0, 3);
+  lcd_1.print("Efficiency: ");
 
-// Print the output voltage to the LCD
-void LCD_print_vout(void) {
-  LCD_clear_row(LCD_row_vout); // Clear row
-  lcd_1.setCursor(0, LCD_row_vout-1); // Reset cursor
-  if (vout < 10) {
-    lcd_1.print(" Vout =  "); lcd_1.print(vout,1); lcd_1.print("V");
-  }
-  else {
-    lcd_1.print(" Vout = "); lcd_1.print(vout,1); lcd_1.print("V");
-  }
-} // LCD_print_vout
+} // LCD_print_cc_info
 
-// Print the alternator current to the LCD
-void LCD_print_alt_curr(void) {
-  LCD_clear_row(LCD_row_alt_curr); // Clear row
-  lcd_1.setCursor(0, LCD_row_alt_curr-1); // Reset cursor
-  lcd_1.print(" Alt.Current= "); lcd_1.print(alt_curr,3); lcd_1.print("A");
-} // LCD_print_alt_curr
-
-// Clear specified row of the LCD
-void LCD_clear_row(uint8_t row) {
-  lcd_1.setCursor( 0, row-1); // 3rd row
-  lcd_1.print("                    ");
-} // LCD_clear_row
-*/
 void LCD_print_power_measurements(void) {
   // Voltage, current, and power measurements are displayed with 4 significant digits
 
@@ -571,9 +718,7 @@ void LCD_print_power_measurements(void) {
     }
   }
   lcd_3.print("W");
-}
-
-
+} // LCD_print_power_measurements
 
 void LCD_clear_row(String lcd_number, uint8_t row) {
   if (lcd_number == "lcd_1") {
@@ -588,7 +733,9 @@ void LCD_clear_row(String lcd_number, uint8_t row) {
       lcd_3.setCursor(0, row);
       lcd_3.print("                    ");
   }
-}
+} // LCD_clear_row
+
+// ==============================================================================================
 
 void Update_source_selector_mode(void) {
   if ((ss_off_button == HIGH) && (!(ss_mode == SS_OFF))) {
@@ -609,25 +756,37 @@ void Update_source_selector_mode(void) {
     bitSet(shift_outputs, SS_MANU_LED_GREEN);
     Update_shift_registers();
   }
-  else if ((ss_ac_button == HIGH) && (!(ss_mode == SS_AC))) {
-    ss_mode = SS_AC;
-    Turn_source_selector_mode_LEDs_off();
-    bitSet(shift_outputs, SS_AC_LED_GREEN);
-    Update_shift_registers();
+  else if (ss_ac_button == HIGH) {
+    if (!(ss_mode == SS_MANU)) {
+      ss_mode = SS_MANU;
+      Turn_source_selector_mode_LEDs_off();
+      bitSet(shift_outputs, SS_MANU_LED_GREEN);
+      Update_shift_registers();
+    }
+    if (ss_source == SS_AC) ss_source = SS_NONE;
+    else ss_source = SS_AC;
   }
-  else if ((ss_bike_button == HIGH) && (!(ss_mode == SS_BIKE))) {
-    ss_mode = SS_BIKE;
-    Turn_source_selector_mode_LEDs_off();
-    bitSet(shift_outputs, SS_BIKE_LED_GREEN);
-    Update_shift_registers();
+  else if (ss_bike_button == HIGH) {
+    if (!(ss_mode == SS_MANU)) {
+      ss_mode = SS_MANU;
+      Turn_source_selector_mode_LEDs_off();
+      bitSet(shift_outputs, SS_MANU_LED_GREEN);
+      Update_shift_registers();
+    }
+    if (ss_source == SS_BIKE) ss_source = SS_NONE;
+    else ss_source = SS_BIKE;
   }
-  else if ((ss_aux_button == HIGH) && (!(ss_mode == SS_AUX))) {
-    ss_mode = SS_AUX;
-    Turn_source_selector_mode_LEDs_off();
-    bitSet(shift_outputs, SS_AUX_LED_GREEN);
-    Update_shift_registers();
+  else if (ss_aux_button == HIGH) {
+    if (!(ss_mode == SS_MANU)) {
+      ss_mode = SS_MANU;
+      Turn_source_selector_mode_LEDs_off();
+      bitSet(shift_outputs, SS_MANU_LED_GREEN);
+      Update_shift_registers();
+    }
+    if (ss_source == SS_AUX) ss_source = SS_NONE;
+    else ss_source = SS_AUX;
   }
-}
+} // Update_source_selector_mode
 
 void Update_charge_controller_mode(void) {
   if ((cc_off_button == HIGH) && (!(cc_mode == CC_OFF))) {
@@ -666,61 +825,63 @@ void Update_charge_controller_mode(void) {
     bitSet(shift_outputs, CC_CRSE_LED_GREEN);
     Update_shift_registers();
   }
-}
+} // Update_charge_controller_mode
 
 void Update_load_selector_mode(void) {
   if ((ls_off_button == HIGH) && (!(ls_mode == LS_OFF))) {
     ls_mode = LS_OFF;
     Turn_load_selector_mode_LEDs_off();
     bitSet(shift_outputs, LS_OFF_LED_RED);
+    bitClear(shift_outputs, LS_BAT_ENABLE);
+    bitClear(shift_outputs, LS_AUX_ENABLE);
     Update_shift_registers();
-    //digitalWrite(LS_BAT_ENABLE, LOW);
-    //digitalWrite(LS_AUX_ENABLE, LOW);
   }
   else if ((ls_bat_button == HIGH) && (!(ls_mode == LS_BAT))) {
     ls_mode = LS_BAT;
     Turn_load_selector_mode_LEDs_off();
     bitSet(shift_outputs, LS_BAT_LED_GREEN);
+    bitClear(shift_outputs, LS_AUX_ENABLE);
     Update_shift_registers();
-    //digitalWrite(LS_BAT_ENABLE, LOW);
-    //digitalWrite(LS_AUX_ENABLE, LOW);
-    //delayMicroseconds(5000);
-    //digitalWrite(LS_BAT_ENABLE, HIGH);
+    delayMicroseconds(5000);
+    bitSet(shift_outputs, LS_BAT_ENABLE);
+    Update_shift_registers();
   }
   else if ((ls_aux_button == HIGH) && (!(ls_mode == LS_AUX))) {
     ls_mode = LS_AUX;
     Turn_load_selector_mode_LEDs_off();
     bitSet(shift_outputs, LS_AUX_LED_GREEN);
+    bitClear(shift_outputs, LS_BAT_ENABLE);
     Update_shift_registers();
-    //digitalWrite(LS_BAT_ENABLE, LOW);
-    //digitalWrite(LS_AUX_ENABLE, LOW);
-    //delayMicroseconds(5000); 
-    //digitalWrite(LS_AUX_ENABLE, HIGH);
+    delayMicroseconds(5000);
+    bitSet(shift_outputs, LS_AUX_ENABLE);
+    Update_shift_registers(); 
   }
-}
+} // Update_load_selector_mode
 
 void Update_alternator_controller_mode(void) {
   if ((ac_en_button == HIGH) && (!(ac_mode == AC_OFF))) {
     ac_mode = AC_OFF;
-    Turn_alternator_controller_mode_LEDs_off();
+    bitClear(shift_outputs, AC_EN_LED_GREEN);
+    Update_shift_registers();  
+    analogWrite(PWM_AC, 0);  
   }
   else if ((ac_en_button == HIGH) && (!(ac_mode == AC_ON))) {
     ac_mode = AC_ON;
-    Turn_alternator_controller_mode_LEDs_off();
     bitSet(shift_outputs, AC_EN_LED_GREEN);
     Update_shift_registers();
+    analogWrite(PWM_AC, ac_duty_cycle);  
   }
-}
+} // Update_alternator_controller_mode
 
 void Turn_source_selector_mode_LEDs_off(void) {
   bitClear(shift_outputs, SS_OFF_LED_RED);
   bitClear(shift_outputs, SS_AUTO_LED_GREEN);
   bitClear(shift_outputs, SS_MANU_LED_GREEN);
-  bitClear(shift_outputs, SS_AC_LED_GREEN);
-  bitClear(shift_outputs, SS_BIKE_LED_GREEN);
-  bitClear(shift_outputs, SS_AUX_LED_GREEN);
+  //bitClear(shift_outputs, SS_AC_LED_GREEN);
+  //bitClear(shift_outputs, SS_BIKE_LED_GREEN);
+  //bitClear(shift_outputs, SS_AUX_LED_GREEN);
   Update_shift_registers();
-}
+} // Turn_source_selector_mode_LEDs_off
 
 void Turn_charge_controller_mode_LEDs_off(void) {
   bitClear(shift_outputs, CC_OFF_LED_RED);
@@ -730,19 +891,14 @@ void Turn_charge_controller_mode_LEDs_off(void) {
   bitClear(shift_outputs, CC_FINE_LED_GREEN);
   bitClear(shift_outputs, CC_CRSE_LED_GREEN);
   Update_shift_registers();
-}
+} // Turn_charge_controller_mode_LEDs_off
 
 void Turn_load_selector_mode_LEDs_off(void) {
   bitClear(shift_outputs, LS_OFF_LED_RED);
   bitClear(shift_outputs, LS_BAT_LED_GREEN);
   bitClear(shift_outputs, LS_AUX_LED_GREEN);
   Update_shift_registers();
-}
-
-void Turn_alternator_controller_mode_LEDs_off(void) {
-  bitClear(shift_outputs, AC_EN_LED_GREEN);
-  Update_shift_registers();
-}
+} // Turn_load_selector_mode_LEDs_off
 
 void Locate_button_presses(void) {
   int button_press_delay = 0;
@@ -962,7 +1118,7 @@ void Locate_button_presses(void) {
     ac_en_button = 0;
   }  
   bitClear(shift_buttons, AC_EN_BUTTON);
-}
+} // Locate_button_presses
 
 void Turn_buttons_off(void) {
   bitClear(shift_buttons, SS_OFF_BUTTON);
@@ -988,7 +1144,7 @@ void Turn_buttons_off(void) {
   bitClear(shift_buttons, AC_EN_BUTTON);
 
   Update_shift_registers();
-}
+} // Turn_buttons_off
 
 void Turn_buttons_on(void) {
   bitSet(shift_buttons, SS_OFF_BUTTON);
@@ -1014,7 +1170,7 @@ void Turn_buttons_on(void) {
   bitSet(shift_buttons, AC_EN_BUTTON);
 
   Update_shift_registers();
-}
+} // Turn_buttons_on
 
 void ISP_Button_Press(void) {
   // Interrupt debouncing variables
@@ -1034,15 +1190,29 @@ void ISP_Button_Press(void) {
         
     // Update charge controller duty cycle
     //Update_duty_cycle();
+    if (cc_mode == CC_CRSE) {
+      if (cc_up_button == LOW) {
+        Serial.print("Down");
+        cc_duty_cycle -= 10;
+        if (cc_duty_cycle < 0) cc_duty_cycle = 0;
+      }
+      else if (cc_up_button == HIGH) {
+        Serial.print("Up");
+        cc_duty_cycle += 10;
+        if (cc_duty_cycle > cc_duty_cycle_max) cc_duty_cycle = cc_duty_cycle_max;
+      }
+    }
 
+    Update_SS_Status();
+    
     Clear_button_presses();
     Turn_buttons_on();
     //while(digitalRead(SHIFT_READ)); // Wait while button pressed
   }
   last_interrupt_time = interrupt_time;
-}
+} // ISP_Button_Press
 
-void Update_shift_registers() {
+void Update_shift_registers(void) {
   // Pull latch low
   digitalWrite(SHIFT_LATCH, LOW);
   delayMicroseconds(5000);
@@ -1070,31 +1240,7 @@ void Update_shift_registers() {
   // Pull latch high
   digitalWrite(SHIFT_LATCH, HIGH);
   delayMicroseconds(5000); 
-}
-
-void Update_duty_cycle(void) {
-  if (cc_mode == CC_OFF)
-    duty_cycle = 0;
-  
-  else if (cc_mode == CC_FINE)
-    duty_cycle = analogRead(FINE_PIN)>>2; // Convert 10-bit ADC value to 8-bit PWM value
-  
-  else if (cc_mode == CC_CRSE) {
-    // Increment/decrement if up/down buttons are pressed
-    if (cc_up_button == HIGH)
-      duty_cycle += duty_cycle_crse_step;
-    if (cc_down_button == HIGH)
-      duty_cycle -= duty_cycle_crse_step;
-  }
-
-  // Clamp duty cycle between limits
-  if (duty_cycle > duty_cycle_max)
-    duty_cycle = duty_cycle_max;
-  else if (duty_cycle < 0)
-    duty_cycle = 0;
-
-  analogWrite(PWM_CC, duty_cycle);
-}
+} // Update_shift_registers
 
 void Clear_button_presses(void) {
   // Source selector
@@ -1122,226 +1268,14 @@ void Clear_button_presses(void) {
   
   // Alternator controller
   ac_en_button = 0;
-}
+} // Clear_button_presses
+
+// ==============================================================================================
 
 void Get_Analog_Measurements(void) {
   // Variables
-  // ---------
   unsigned int i;
   float ADC_sum;
-  const float ADC_scale = 5/1023.0/num_samples;
-  
-  // Measurement scales
-  // ------------------
-  // Power Measurement #2
-  const float P1_aux_volt_scale = 1;
-  const float ADC_ac_curr_scale = 0.003164;
-  const float P2_bus_volt_scale = 1;
-  const float ADC_ss_ac_scale   = 0.066641;
-  const float ADC_cc_volt_scale = 0.021081;
-  const float P5_dc_volt_scale  = 1;
-  const float ADC_ss_bike_scale = 0.068046;
-
-  
-  const float P6_in_volt_scale  = 1;
-  const float ADC_ss_aux_scale  = 0.065485;
-  const float ADC_cc_pot_scale  = 5/1023.0;
-
-  // Slopes
-  // ======
-  // Voltage Measurements Slopes
-  // ---------------------------
-  // Power Measurement #1
-  const float P1_aux_volt_slope_1  = 0.032909;
-  const float P1_aux_volt_slope_2  = 0.033947;
-  const float P1_aux_volt_slope_3  = 0.033559;
-  const float P1_aux_volt_slope_4  = 0.033707;
-  // Power Measurement #2
-  const float P2_bus_volt_slope_1  = 0.034060;
-  const float P2_bus_volt_slope_2  = 0.033837;
-  const float P2_bus_volt_slope_3  = 0.033784;
-  const float P2_bus_volt_slope_4  = 0.033784;
- // Power Measurement #5
-  const float P5_dc_volt_slope_1   = 0.034014;
-  const float P5_dc_volt_slope_2   = 0.033976;
-  const float P5_dc_volt_slope_3   = 0.033784;
-  const float P5_dc_volt_slope_4   = 0.033784;
-  // Power Measurement #6
-  const float P6_in_volt_slope_1   = 0.053706;
-  const float P6_in_volt_slope_2   = 0.053312;
-  const float P6_in_volt_slope_3   = 0.053332;
-  const float P6_in_volt_slope_4   = 0.053191;
-    
-  // Current Measurement Slopes
-  // --------------------------
-  // Power Measurement #1
-  const float P1_aux_curr_slope_1  = 0.010000;
-  const float P1_aux_curr_slope_2  = 0.010030;
-  const float P1_aux_curr_slope_3  = 0.010101;
-  const float P1_aux_curr_slope_4  = 0.009992;
-  const float P1_aux_curr_slope_5  = 0.009957;
-  // Power Measurement #2
-  const float P2_bus_curr_slope_1  = 0.009930;
-  const float P2_bus_curr_slope_2  = 0.010173;
-  const float P2_bus_curr_slope_3  = 0.010040;
-  const float P2_bus_curr_slope_4  = 0.009925;
-  const float P2_bus_curr_slope_5  = 0.009914;
- // Power Measurement #3
-  const float P3_sys_curr_slope_1  = 0.010010;
-  const float P3_sys_curr_slope_2  = 0.009891;
-  const float P3_sys_curr_slope_3  = 0.010089;
-  const float P3_sys_curr_slope_4  = 0.009907;
-  const float P3_sys_curr_slope_5  = 0.009872;
- // Power Measurement #4
-  const float P4_ac_curr_slope_1   = 0.010091;
-  const float P4_ac_curr_slope_2   = 0.010101;
-  const float P4_ac_curr_slope_3   = 0.010146;
-  const float P4_ac_curr_slope_4   = 0.010012;
-  const float P4_ac_curr_slope_5   = 0.009947;
- // Power Measurement #5
-  const float P5_dc_curr_slope_1   = 0.010132;
-  const float P5_dc_curr_slope_2   = 0.010132;
-  const float P5_dc_curr_slope_3   = 0.010284;
-  const float P5_dc_curr_slope_4   = 0.010093;
-  const float P5_dc_curr_slope_5   = 0.010045;
-  // Power Measurement #6
-  const float P6_in_curr_slope_1   = 0.009901;
-  const float P6_in_curr_slope_2   = 0.010152;
-  const float P6_in_curr_slope_3   = 0.010020;
-  const float P6_in_curr_slope_4   = 0.010000;
-  const float P6_in_curr_slope_5   = 0.009903;
-
-  // Intercepts
-  // ==========
-  // Voltage Measurement Intercepts
-  // ------------------------------
-  // Power Measurement #1
-  const float P1_aux_volt_intercept_1 = 0.115401;
-  const float P1_aux_volt_intercept_2 = 0.087508;
-  const float P1_aux_volt_intercept_3 = 0.200685;
-  const float P1_aux_volt_intercept_4 = 0.135503;
-  // Power Measurement #2
-  const float P2_bus_volt_intercept_1 = 0.113760;
-  const float P2_bus_volt_intercept_2 = 0.119558;
-  const float P2_bus_volt_intercept_3 = 0.135135;
-  const float P2_bus_volt_intercept_4 = 0.135135;
-  // Power Measurement #5
-  const float P5_dc_volt_intercept_1  = 0.111905;
-  const float P5_dc_volt_intercept_2  = 0.112877;
-  const float P5_dc_volt_intercept_3  = 0.168919;
-  const float P5_dc_volt_intercept_4  = 0.168919;
-  // Power Measurement #6 
-  const float P6_in_volt_intercept_1  = 0.124060;
-  const float P6_in_volt_intercept_2  = 0.137812;
-  const float P6_in_volt_intercept_3  = 0.134130;
-  const float P6_in_volt_intercept_4  = 0.212766;
-     
-  // Current Measurement Intercepts
-  // ------------------------------
-  // Power Measurement #1
-  const float P1_aux_curr_intercept_1 =-0.006300;
-  const float P1_aux_curr_intercept_2 =-0.006770;
-  const float P1_aux_curr_intercept_3 =-0.008586;
-  const float P1_aux_curr_intercept_4 =-0.003098;
-  const float P1_aux_curr_intercept_5 = 0.000398; 
-  // Power Measurement #2
-  const float P2_bus_curr_intercept_1 = 0.025869;
-  const float P2_bus_curr_intercept_2 = 0.022838;
-  const float P2_bus_curr_intercept_3 = 0.025803;
-  const float P2_bus_curr_intercept_4 = 0.031262;
-  const float P2_bus_curr_intercept_5 = 0.032271; 
-  // Power Measurement #3
-  const float P3_sys_curr_intercept_1 = 0.025776;
-  const float P3_sys_curr_intercept_2 = 0.027250;
-  const float P3_sys_curr_intercept_3 = 0.022800;
-  const float P3_sys_curr_intercept_4 = 0.031405;
-  const float P3_sys_curr_intercept_5 = 0.034776; 
-  // Power Measurement #4
-  const float P4_ac_curr_intercept_1  =-0.000858;
-  const float P4_ac_curr_intercept_2  =-0.001010;
-  const float P4_ac_curr_intercept_3  =-0.002131;
-  const float P4_ac_curr_intercept_4  = 0.004505;
-  const float P4_ac_curr_intercept_5  = 0.010942;
-  // Power Measurement #5
-  const float P5_dc_curr_intercept_1  =-0.037741;
-  const float P5_dc_curr_intercept_2  =-0.037741;
-  const float P5_dc_curr_intercept_3  =-0.042061;
-  const float P5_dc_curr_intercept_4  =-0.031994;
-  const float P5_dc_curr_intercept_5  =-0.027070;
-  // Power Measurement #6 
-  const float P6_in_curr_intercept_1  = 0.031188;
-  const float P6_in_curr_intercept_2  = 0.028173;
-  const float P6_in_curr_intercept_3  = 0.031062;
-  const float P6_in_curr_intercept_4  = 0.032000;
-  const float P6_in_curr_intercept_5  = 0.041347;
-
-
-  // Upper Bounds for Ranges
-  // =======================
-  // Voltage Measurement Bounds
-  // --------------------------
-  // Power Measurement #1
-  const float P1_aux_volt_bound_0 = 4.09;
-  const float P1_aux_volt_bound_1 = 26.88;
-  const float P1_aux_volt_bound_2 = 292;
-  const float P1_aux_volt_bound_3 = 440.99;
-  // Power Measurement #2
-  const float P2_bus_volt_bound_0 = 4;
-  const float P2_bus_volt_bound_1 = 26.02;
-  const float P2_bus_volt_bound_2 = 292;
-  const float P2_bus_volt_bound_3 = 440;
-  // Power Measurement #5
-  const float P5_dc_volt_bound_0  = 4.06;
-  const float P5_dc_volt_bound_1  = 26.11;
-  const float P5_dc_volt_bound_2  = 291;
-  const float P5_dc_volt_bound_3  = 439;
-  // Power Measurement #6
-  const float P6_in_volt_bound_0  = 7;
-  const float P6_in_volt_bound_1  = 34.93;
-  const float P6_in_volt_bound_2  = 184.99;
-  const float P6_in_volt_bound_3  = 560;
-
-    
-  // Current Measurement Bounds
-  // --------------------------
-  // Power Measurement #1
-  const float P1_aux_curr_bound_0 = 5.63;
-  const float P1_aux_curr_bound_1 = 15.63;
-  const float P1_aux_curr_bound_2 = 25.6;
-  const float P1_aux_curr_bound_3 = 50.35;
-  const float P1_aux_curr_bound_4 = 100.39;
-  // Power Measurement #2
-  const float P2_bus_curr_bound_0 = 2.43;
-  const float P2_bus_curr_bound_1 = 12.5;
-  const float P2_bus_curr_bound_2 = 22.33;
-  const float P2_bus_curr_bound_3 = 47.23;
-  const float P2_bus_curr_bound_4 = 97.61;
-  // Power Measurement #3
-  const float P3_sys_curr_bound_0 = 2.42;
-  const float P3_sys_curr_bound_1 = 12.41;
-  const float P3_sys_curr_bound_2 = 22.52;
-  const float P3_sys_curr_bound_3 = 47.3;
-  const float P3_sys_curr_bound_4 = 97.77;
-  // Power Measurement #4
-  const float P4_ac_curr_bound_0  = 5.04;
-  const float P4_ac_curr_bound_1  = 14.95;
-  const float P4_ac_curr_bound_2  = 24.85;
-  const float P4_ac_curr_bound_3  = 49.49;
-  const float P4_ac_curr_bound_4  = 99.43;
-  // Power Measurement #5
-  const float P5_dc_curr_bound_0  = 8.66;
-  const float P5_dc_curr_bound_1  = 18.53;
-  const float P5_dc_curr_bound_2  = 28.4;
-  const float P5_dc_curr_bound_3  = 52.71;
-  const float P5_dc_curr_bound_4  = 102.25;
-  // Power Measurement #6
-  const float P6_in_curr_bound_0  = 1.9;
-  const float P6_in_curr_bound_1  = 12;
-  const float P6_in_curr_bound_2  = 21.85;
-  const float P6_in_curr_bound_3  = 46.8;
-  const float P6_in_curr_bound_4  = 96.8;
-
-
 
   // S0 = 0, S1 = 0
   // --------------
@@ -1361,7 +1295,7 @@ void Get_Analog_Measurements(void) {
   else if (P1_aux_volt < P1_aux_volt_bound_2) P1_aux_volt = P1_aux_volt_slope_2*P1_aux_volt + P1_aux_volt_intercept_2;
   else if (P1_aux_volt < P1_aux_volt_bound_3) P1_aux_volt = P1_aux_volt_slope_3*P1_aux_volt + P1_aux_volt_intercept_3;
   else P1_aux_volt = P1_aux_volt_slope_4*P1_aux_volt + P1_aux_volt_intercept_4;
-  Serial.print("P1_aux_volt = "); Serial.print(P1_aux_volt,5); Serial.print("\n");
+  //Serial.print("P1_aux_volt = "); Serial.print(P1_aux_volt,5); Serial.print("\n");
   
   // Get channel 2 measurement
   ADC_sum = 0;
@@ -1376,7 +1310,7 @@ void Get_Analog_Measurements(void) {
   else if (P2_bus_curr < P2_bus_curr_bound_3) P2_bus_curr = P2_bus_curr_slope_3*P2_bus_curr + P2_bus_curr_intercept_3;
   else if (P2_bus_curr < P2_bus_curr_bound_4) P2_bus_curr = P2_bus_curr_slope_4*P2_bus_curr + P2_bus_curr_intercept_4;
   else P2_bus_curr = P2_bus_curr_slope_5*P2_bus_curr + P2_bus_curr_intercept_5;
-  Serial.print("P2_bus_curr = "); Serial.print(P2_bus_curr,5); Serial.print("\n");
+  //Serial.print("P2_bus_curr = "); Serial.print(P2_bus_curr,5); Serial.print("\n");
   
   // Get channel 3 measurement
   ADC_sum = 0;
@@ -1391,7 +1325,7 @@ void Get_Analog_Measurements(void) {
   else if (P1_aux_curr < P1_aux_curr_bound_3) P1_aux_curr = P1_aux_curr_slope_3*P1_aux_curr + P1_aux_curr_intercept_3;
   else if (P1_aux_curr < P1_aux_curr_bound_4) P1_aux_curr = P1_aux_curr_slope_4*P1_aux_curr + P1_aux_curr_intercept_4;
   else P1_aux_curr = P1_aux_curr_slope_5*P1_aux_curr + P1_aux_curr_intercept_5;
-  Serial.print("P1_aux_curr = "); Serial.print(P1_aux_curr,5); Serial.print("\n");
+  //Serial.print("P1_aux_curr = "); Serial.print(P1_aux_curr,5); Serial.print("\n");
 
   // Get channel 4 measurement
   ADC_sum = 0;
@@ -1401,9 +1335,9 @@ void Get_Analog_Measurements(void) {
   }
   ADC_ac_curr = ADC_ac_curr_scale*(ADC_sum/num_samples);
   if (ADC_ac_curr < 0) ADC_ac_curr = 0;
-  Serial.print("ADC_ac_curr = "); Serial.print(ADC_ac_curr,5); Serial.print("\n");
+  //Serial.print("ADC_ac_curr = "); Serial.print(ADC_ac_curr,5); Serial.print("\n");
 
-  Serial.print("----------------\n");
+  //Serial.print("----------------\n");
 
     
   // S0 = 0, S1 = 1
@@ -1424,7 +1358,7 @@ void Get_Analog_Measurements(void) {
   else if (P2_bus_volt < P2_bus_volt_bound_2) P2_bus_volt = P2_bus_volt_slope_2*P2_bus_volt + P2_bus_volt_intercept_2;
   else if (P2_bus_volt < P2_bus_volt_bound_3) P2_bus_volt = P2_bus_volt_slope_3*P2_bus_volt + P2_bus_volt_intercept_3;
   else P2_bus_volt = P2_bus_volt_slope_4*P2_bus_volt + P2_bus_volt_intercept_4;
-  Serial.print("P2_bus_volt = "); Serial.print(P2_bus_volt,5); Serial.print("\n");
+  //Serial.print("P2_bus_volt = "); Serial.print(P2_bus_volt,5); Serial.print("\n");
   
   // Get channel 2 measurement
   ADC_sum = 0;
@@ -1439,7 +1373,7 @@ void Get_Analog_Measurements(void) {
   else if (P3_sys_curr < P3_sys_curr_bound_3) P3_sys_curr = P3_sys_curr_slope_3*P3_sys_curr + P3_sys_curr_intercept_3;
   else if (P3_sys_curr < P3_sys_curr_bound_4) P3_sys_curr = P3_sys_curr_slope_4*P3_sys_curr + P3_sys_curr_intercept_4;
   else P3_sys_curr = P3_sys_curr_slope_5*P3_sys_curr + P3_sys_curr_intercept_5;
-  Serial.print("P3_sys_curr = "); Serial.print(P3_sys_curr,5); Serial.print("\n");
+  //Serial.print("P3_sys_curr = "); Serial.print(P3_sys_curr,5); Serial.print("\n");
   
   // Get channel 3 measurement
   ADC_sum = 0;
@@ -1459,9 +1393,9 @@ void Get_Analog_Measurements(void) {
   }
   ADC_cc_volt = ADC_cc_volt_scale*(ADC_sum/num_samples);
   if (ADC_cc_volt < 0) ADC_cc_volt = 0;
-  Serial.print("ADC_cc_volt = "); Serial.print(ADC_cc_volt,5); Serial.print("\n");
+  //Serial.print("ADC_cc_volt = "); Serial.print(ADC_cc_volt,5); Serial.print("\n");
 
-  Serial.print("----------------\n");
+  //Serial.print("----------------\n");
 
 
   // S0 = 1, S1 = 0
@@ -1482,7 +1416,7 @@ void Get_Analog_Measurements(void) {
   else if (P5_dc_volt < P5_dc_volt_bound_2) P5_dc_volt = P5_dc_volt_slope_2*P5_dc_volt + P5_dc_volt_intercept_2;
   else if (P5_dc_volt < P5_dc_volt_bound_3) P5_dc_volt = P5_dc_volt_slope_3*P5_dc_volt + P5_dc_volt_intercept_3;
   else P5_dc_volt = P5_dc_volt_slope_4*P5_dc_volt + P5_dc_volt_intercept_4;
-  Serial.print("P5_dc_volt = "); Serial.print(P5_dc_volt,5); Serial.print("\n");
+  //Serial.print("P5_dc_volt = "); Serial.print(P5_dc_volt,5); Serial.print("\n");
   
   // Get channel 2 measurement
   ADC_sum = 0;
@@ -1497,7 +1431,7 @@ void Get_Analog_Measurements(void) {
   else if (P4_ac_curr < P4_ac_curr_bound_3) P4_ac_curr = P4_ac_curr_slope_3*P4_ac_curr + P4_ac_curr_intercept_3;
   else if (P4_ac_curr < P4_ac_curr_bound_4) P4_ac_curr = P4_ac_curr_slope_4*P4_ac_curr + P4_ac_curr_intercept_4;
   else P4_ac_curr = P4_ac_curr_slope_5*P4_ac_curr + P4_ac_curr_intercept_5;
-  Serial.print("P4_ac_curr = "); Serial.print(P4_ac_curr,5); Serial.print("\n");
+  //Serial.print("P4_ac_curr = "); Serial.print(P4_ac_curr,5); Serial.print("\n");
   
   // Get channel 3 measurement
   ADC_sum = 0;
@@ -1522,9 +1456,9 @@ void Get_Analog_Measurements(void) {
   else if (P6_in_curr < P6_in_curr_bound_3) P6_in_curr = P6_in_curr_slope_3*P6_in_curr + P6_in_curr_intercept_3;
   else if (P6_in_curr < P6_in_curr_bound_4) P6_in_curr = P6_in_curr_slope_4*P6_in_curr + P6_in_curr_intercept_4;
   else P6_in_curr = P6_in_curr_slope_5*P6_in_curr + P6_in_curr_intercept_5;
-  Serial.print("P6_in_curr = "); Serial.print(P6_in_curr,5); Serial.print("\n");
+  //Serial.print("P6_in_curr = "); Serial.print(P6_in_curr,5); Serial.print("\n");
 
-  Serial.print("----------------\n");
+  //Serial.print("----------------\n");
 
 
   // S0 = 1, S1 = 1
@@ -1545,7 +1479,7 @@ void Get_Analog_Measurements(void) {
   else if (P6_in_volt < P6_in_volt_bound_2) P6_in_volt = P6_in_volt_slope_2*P6_in_volt + P6_in_volt_intercept_2;
   else if (P6_in_volt < P6_in_volt_bound_3) P6_in_volt = P6_in_volt_slope_3*P6_in_volt + P6_in_volt_intercept_3;
   else P6_in_volt = P6_in_volt_slope_4*P6_in_volt + P6_in_volt_intercept_4;
-  Serial.print("P6_in_volt = "); Serial.print(P6_in_volt,5); Serial.print("\n");
+  //Serial.print("P6_in_volt = "); Serial.print(P6_in_volt,5); Serial.print("\n");
   
   // Get channel 2 measurement
   ADC_sum = 0;
@@ -1560,7 +1494,7 @@ void Get_Analog_Measurements(void) {
   else if (P5_dc_curr < P5_dc_curr_bound_3) P5_dc_curr = P5_dc_curr_slope_3*P5_dc_curr + P5_dc_curr_intercept_3;
   else if (P5_dc_curr < P5_dc_curr_bound_4) P5_dc_curr = P5_dc_curr_slope_4*P5_dc_curr + P5_dc_curr_intercept_4;
   else P5_dc_curr = P5_dc_curr_slope_5*P5_dc_curr + P5_dc_curr_intercept_5;
-  Serial.print("P5_dc_curr = "); Serial.print(P5_dc_curr,5); Serial.print("\n");
+  //Serial.print("P5_dc_curr = "); Serial.print(P5_dc_curr,5); Serial.print("\n");
   
   // Get channel 3 measurement
   ADC_sum = 0;
@@ -1580,10 +1514,10 @@ void Get_Analog_Measurements(void) {
   }
   ADC_cc_pot = ADC_cc_pot_scale*(ADC_sum/num_samples);
   if (ADC_cc_pot < 0) ADC_cc_pot = 0;
-  Serial.print("ADC_cc_pot = "); Serial.print(ADC_cc_pot,5); Serial.print("\n");
+  //Serial.print("ADC_cc_pot = "); Serial.print(ADC_cc_pot,5); Serial.print("\n");
 
   Serial.print("================\n");
-}
+} // Get_Analog_Measurements
 
 
 void Calculate_Power_Measurements(void) {
@@ -1603,4 +1537,146 @@ void Calculate_Power_Measurements(void) {
   P5_dc_pwr  = P5_dc_volt  * P5_dc_curr;
   P6_in_pwr  = P6_in_volt  * P6_in_curr;
   P7_bat_pwr = P7_bat_volt * P7_bat_curr;
+} // Calculate_Power_Measurements
+
+
+void Update_SS_Status(void)
+{
+    // Check availability of input sources and update LEDs
+    // ---------------------------------------------------
+    if (ADC_ss_ac > ss_min_volt) {
+      ss_ac_available = YES;
+      bitSet(shift_outputs, SS_AC_LED_YELLOW);
+    }
+    else {
+      ss_ac_available = NO;
+      bitClear(shift_outputs, SS_AC_LED_YELLOW);
+    }
+    
+    if (ADC_ss_bike > ss_min_volt) {
+      ss_bike_available = YES;
+      bitSet(shift_outputs, SS_BIKE_LED_YELLOW);
+    }
+    else {
+      ss_bike_available = NO;
+      bitClear(shift_outputs, SS_BIKE_LED_YELLOW);
+    }
+    
+    if (ADC_ss_aux > ss_min_volt) {
+      ss_aux_available = YES;
+      bitSet(shift_outputs, SS_AUX_LED_YELLOW);
+    }
+    else {
+      ss_aux_available = NO;
+      bitClear(shift_outputs, SS_AUX_LED_YELLOW);
+    }
+
+    // Update active LEDS and Enables lines based on mode and availability
+    // -------------------------------------------------------------------
+    // OFF Mode
+    if (ss_mode == SS_OFF) {
+        ss_source = SS_NONE;
+        // LEDs
+        bitClear(shift_outputs, SS_AC_LED_GREEN);
+        bitClear(shift_outputs, SS_BIKE_LED_GREEN);
+        bitClear(shift_outputs, SS_AUX_LED_GREEN);
+        // Enable lines
+        bitClear(shift_outputs, SS_AC_ENABLE);
+        bitClear(shift_outputs, SS_BIKE_ENABLE);
+        bitClear(shift_outputs, SS_AUX_ENABLE);
+    }
+    // AUTOMATIC Mode
+    if (ss_mode == SS_AUTO) {
+      // BIKE > AUX > AC
+      if (ss_bike_available == YES) {
+        ss_source = SS_BIKE;
+        // LEDs
+        bitClear(shift_outputs, SS_AC_LED_GREEN);
+        bitSet(shift_outputs, SS_BIKE_LED_GREEN);
+        bitClear(shift_outputs, SS_AUX_LED_GREEN);
+        // Enable lines
+        bitClear(shift_outputs, SS_AC_ENABLE);
+        bitSet(shift_outputs, SS_BIKE_ENABLE);
+        bitClear(shift_outputs, SS_AUX_ENABLE);
+      }
+      else if (ss_aux_available == YES) {
+        ss_source = SS_AUX;
+        // LEDs
+        bitClear(shift_outputs, SS_AC_LED_GREEN);
+        bitClear(shift_outputs, SS_BIKE_LED_GREEN);
+        bitSet(shift_outputs, SS_AUX_LED_GREEN);
+        // Enable lines
+        bitClear(shift_outputs, SS_AC_ENABLE);
+        bitClear(shift_outputs, SS_BIKE_ENABLE);
+        bitSet(shift_outputs, SS_AUX_ENABLE);     
+      }
+      else if (ss_ac_available == YES) {
+        ss_source = SS_AC;
+        // LEDs
+        bitSet(shift_outputs, SS_AC_LED_GREEN);
+        bitClear(shift_outputs, SS_BIKE_LED_GREEN);
+        bitClear(shift_outputs, SS_AUX_LED_GREEN);
+        // Enable lines
+        bitSet(shift_outputs, SS_AC_ENABLE);
+        bitClear(shift_outputs, SS_BIKE_ENABLE);
+        bitClear(shift_outputs, SS_AUX_ENABLE);      
+      }
+      else {
+        ss_source = SS_NONE;
+        // LEDs
+        bitClear(shift_outputs, SS_AC_LED_GREEN);
+        bitClear(shift_outputs, SS_BIKE_LED_GREEN);
+        bitClear(shift_outputs, SS_AUX_LED_GREEN);
+        // Enable lines
+        bitClear(shift_outputs, SS_AC_ENABLE);
+        bitClear(shift_outputs, SS_BIKE_ENABLE);
+        bitClear(shift_outputs, SS_AUX_ENABLE);
+      }
+    }
+    // MANUAL Mode
+    if (ss_mode == SS_MANU) {
+      if (ss_source == SS_NONE) {
+        // LEDs
+        bitClear(shift_outputs, SS_AC_LED_GREEN);
+        bitClear(shift_outputs, SS_BIKE_LED_GREEN);
+        bitClear(shift_outputs, SS_AUX_LED_GREEN);
+        // Enable lines
+        bitClear(shift_outputs, SS_AC_ENABLE);
+        bitClear(shift_outputs, SS_BIKE_ENABLE);
+        bitClear(shift_outputs, SS_AUX_ENABLE);
+      }
+      else if (ss_source == SS_AC) {
+        // LEDs
+        bitSet(shift_outputs, SS_AC_LED_GREEN);
+        bitClear(shift_outputs, SS_BIKE_LED_GREEN);
+        bitClear(shift_outputs, SS_AUX_LED_GREEN);
+        // Enable lines
+        bitSet(shift_outputs, SS_AC_ENABLE);
+        bitClear(shift_outputs, SS_BIKE_ENABLE);
+        bitClear(shift_outputs, SS_AUX_ENABLE);
+      }      
+      else if (ss_source == SS_BIKE) {
+        // LEDs
+        bitClear(shift_outputs, SS_AC_LED_GREEN);
+        bitSet(shift_outputs, SS_BIKE_LED_GREEN);
+        bitClear(shift_outputs, SS_AUX_LED_GREEN);
+        // Enable lines
+        bitClear(shift_outputs, SS_AC_ENABLE);
+        bitSet(shift_outputs, SS_BIKE_ENABLE);
+        bitClear(shift_outputs, SS_AUX_ENABLE);
+      }
+      else if (ss_source == SS_AUX) {
+        // LEDs
+        bitClear(shift_outputs, SS_AC_LED_GREEN);
+        bitClear(shift_outputs, SS_BIKE_LED_GREEN);
+        bitSet(shift_outputs, SS_AUX_LED_GREEN);
+        // Enable lines
+        bitClear(shift_outputs, SS_AC_ENABLE);
+        bitClear(shift_outputs, SS_BIKE_ENABLE);
+        bitSet(shift_outputs, SS_AUX_ENABLE);
+      }
+    }
+    // Apply changes
+    Update_shift_registers();
 }
+
