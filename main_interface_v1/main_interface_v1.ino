@@ -116,7 +116,7 @@
 #define BAT_NOT_CHARGING "  N/A  "
 #define BAT_CHARGING_CC  "Const I"
 #define BAT_CHARGING_CV  "Const V"
-#define BAT_STANDBY      "Standby"
+#define BAT_FLOAT        "Standby"
 
 // Miscellaneous
 #define YES 1
@@ -179,8 +179,8 @@ float val_4 = 0;
 
 // Analog measurement variables
 // -----------------------------
-const unsigned int num_samples = 50; // Number of samples to take for ADC measurements
-const unsigned int measurement_delay_ms = 20;
+const unsigned int num_samples = 10; // Number of samples to take for ADC measurements
+const unsigned int measurement_delay_ms = 10; //20;
 // Source selector input voltages
 float ADC_ss_ac = 0;
 float ADC_ss_bike = 0;
@@ -230,31 +230,32 @@ uint8_t LCD_row_vout = 4;
 uint8_t LCD_row_alt_curr = 4;
 
 // Charge controller variables
-const uint8_t cc_duty_cycle_max = 255*0.5; // Max duty cycle value of 25%, rounded down for byte data type
-const uint8_t cc_duty_cycle_crse_step = 1; // Duty cycle increment/decrement value for course mode
+const uint8_t cc_duty_cycle_max = 255*0.75; // Max duty cycle value of 75%, rounded down for byte data type
+const uint8_t cc_duty_cycle_crse_step = 5; // Duty cycle increment/decrement value for course mode
 signed short cc_duty_cycle = 0; // Signed so that if decremented below zero, easy to set equal to zero
 float cc_duty_cycle_percent = 0; // Duty cycle expressed as a percent
+unsigned int cc_duty_cycle_count = 1; // Duty cycle decrement value
 const float cc_volt_cycle_upper = 14.8; // Charging voltage upper bound
 const float cc_volt_cycle_lower = 14.6; // Charging voltage lower bound
-const float cc_volt_standby_upper = 13.8; // Standby voltage upper bound
-const float cc_volt_standby_lower = 13.6; // Standby voltage upper bound
-const float cc_curr_cycle_max = 1; // Max charging current, units of amps
+const float cc_volt_float_upper = 13.8; // Standby voltage upper bound
+const float cc_volt_float_lower = 13.6; // Standby voltage upper bound
+const float cc_curr_cycle_max = 2; // Max charging current, units of amps
 const float cc_curr_cycle_min = 0.1; // Min charging current before considered fully charged, units of amps
-const float cc_curr_in_max = 1.25; // Maximum input current
-const float cc_curr_out_max = 1; // Maximum charge controller current
+const float cc_curr_in_max_other = 3; // Maximum input current for other sources (BIKE and AUX)
+const float cc_curr_in_max_ac = 1; // Maximum input current for AC source
+const float cc_curr_out_max = 3; // Maximum charge controller current
 const float cc_volt_high = 14; // High mode voltage, units of volts
 const float cc_volt_low = 13.5; // Low mode voltage, units of volts
-
-
 
 // Shift register variables
 uint32_t shift_buttons = 0;
 uint32_t shift_outputs = 0; 
 
 // Miscellaneous variables
+const int loops_per_update = 2; // Number of SS and CC updates before printing values
 float efficiency = 75.8; // Charge controller efficiency
 float vout = 0; // Charge controller output voltage
-const uint8_t ac_duty_cycle = 10; // Alternator current contoller duty cycle [0-255]
+const uint8_t ac_duty_cycle = 9; // Alternator current contoller duty cycle [0-255]
 bool error = 0; // error flag
 float ss_min_volt = 8; // Minimum voltage for source to be considered available, units of volts
 
@@ -496,7 +497,7 @@ void setup() {
   digitalWrite(SHIFT_LATCH, LOW);
 
   // 4:1 Analog MUX initializations
-  analogReference(EXTERNAL);
+  analogReference(DEFAULT);
   pinMode(MUX_S1, OUTPUT);
   pinMode(MUX_S0, OUTPUT);
   digitalWrite(MUX_S1, LOW);
@@ -547,26 +548,60 @@ void setup() {
   
   Turn_buttons_on(); // Turn on push buttons
   attachInterrupt(1, ISP_Button_Press, RISING);  // Set up interrupt for push buttons
-
+  
+  Serial.print("\n");
 }
 
 // ==============================================================================================
 
+// Total loop duration is about 500ms to meet our 1Hz refresh rate spec
 void loop() {
- 
-    Get_Analog_Measurements();
-    Calculate_Power_Measurements();
-    LCD_print_power_measurements();
+  //Serial.print(analogRead(A2)); Serial.print("\n");
 
-    //Serial.print(cc_duty_cycle); Serial.print("\n");
-    //analogWrite(PWM_CC, cc_duty_cycle);
+  
+  // Update measurements
+  Get_Analog_Measurements();
+  //Get_Analog_Measurements_Test();
+  Calculate_Power_Measurements();
 
-    Update_SS_Status();
-    Update_CC_Status();
 
-    LCD_print_cc_info();
 
-    delay(100);
+  // Display information
+  LCD_print_power_measurements();
+  LCD_print_cc_info();
+
+  Serial.print(millis()/1000.0);
+  Serial.print(" "); 
+  if (bat_mode == BAT_NOT_CHARGING)
+    Serial.print("of");
+  if (bat_mode == BAT_CHARGING_CC)
+    Serial.print("cc");
+  if (bat_mode == BAT_CHARGING_CV)
+    Serial.print("cv");
+  if (bat_mode == BAT_FLOAT)
+    Serial.print("fl");
+  Serial.print(" ");
+  Serial.print(cc_duty_cycle_percent);
+  Serial.print(" ");
+  Serial.print(efficiency);
+  Serial.print(" ");
+  Serial.print(P7_bat_volt,5);
+  Serial.print(" ");
+  Serial.print(P7_bat_curr,5);
+  Serial.print("\n");
+  
+  /*
+  Serial.print("Bat Status: "); Serial.print(bat_mode); Serial.print("\n");
+  Serial.print("Duty Cycle: "); Serial.print(cc_duty_cycle*100.0/255.0); Serial.print("%\n");
+  Serial.print("Efficiency: "); Serial.print(P2_bus_pwr/P6_in_pwr*100.0); Serial.print("%\n");
+  Serial.print("Bat volt = "); Serial.print(P7_bat_volt,5); Serial.print("\n");
+  Serial.print("Bat curr = "); Serial.print(P7_bat_curr,5); Serial.print("\n");
+  Serial.print("================\n");
+  */
+
+  // Adjust operating status
+  Update_SS_Status();
+  Update_CC_Status();
 
 }
 
@@ -575,11 +610,13 @@ void loop() {
 // LCD functions
 // -------------
 void LCD_print_cc_info(void) {
-  lcd_1.clear();
+  //lcd_1.clear();
+  lcd_1.setCursor(0, 0);
   lcd_1.print(" Charge Controller  ");
   lcd_1.setCursor(0, 1);
   lcd_1.print("Bat Status: ");
   lcd_1.print(bat_mode);
+  //Serial.print("Bat Status: "); Serial.print(bat_mode); Serial.print("\n");
 
   lcd_1.setCursor(0, 2);
   lcd_1.print("Duty Cycle: ");
@@ -588,16 +625,21 @@ void LCD_print_cc_info(void) {
   if (cc_duty_cycle_percent < 10) lcd_1.print("0");
   lcd_1.print(cc_duty_cycle_percent, 2);
   lcd_1.print("%");
+  //Serial.print("Duty Cycle: "); Serial.print(cc_duty_cycle_percent); Serial.print("%\n");
 
   lcd_1.setCursor(0, 3);
   lcd_1.print("Efficiency: ");
-  efficiency = P2_bus_pwr/P6_in_pwr*100.0;
+  if (cc_duty_cycle_percent == 0)
+    efficiency = 0;
+  else
+    efficiency = P2_bus_pwr/P6_in_pwr*100.0;
   if (efficiency > 100) efficiency = 100;
-  if (efficiency < 0) efficiency = 0;
+  // fix: if (efficiency == NAN) efficiency = 0;
   if (efficiency < 100) lcd_1.print("0");
   if (efficiency < 10) lcd_1.print("0");
   lcd_1.print(efficiency, 2);
   lcd_1.print("%");
+  //Serial.print("Efficiency: "); Serial.print(efficiency); Serial.print("%\n");
   
 } // LCD_print_cc_info
 
@@ -607,7 +649,7 @@ void LCD_print_power_measurements(void) {
   // LCD Display #2
   // --------------
   // --------------
-  lcd_2.clear();
+  lcd_2.setCursor(0, 0);
   lcd_2.print("Power Monitoring Sys");
   
   // P6: Input node measurements
@@ -659,7 +701,6 @@ void LCD_print_power_measurements(void) {
   // LCD Display #3
   // --------------
   // --------------
-  lcd_3.clear();
   
   // P5: 12VDC output node measurements
   // ----------------------------------
@@ -1339,7 +1380,7 @@ void Get_Analog_Measurements(void) {
   for (i = 0; i < num_samples; i++) {
     ADC_sum += analogRead(A2);
   }
-  P1_aux_curr = ADC_sum/num_samples;
+  P1_aux_curr = ADC_sum/num_samples-2;
   if (P1_aux_curr < P1_aux_curr_bound_0) P1_aux_curr = 0;
   else if (P1_aux_curr < P1_aux_curr_bound_1) P1_aux_curr = P1_aux_curr_slope_1*P1_aux_curr + P1_aux_curr_intercept_1;
   else if (P1_aux_curr < P1_aux_curr_bound_2) P1_aux_curr = P1_aux_curr_slope_2*P1_aux_curr + P1_aux_curr_intercept_2;
@@ -1360,7 +1401,7 @@ void Get_Analog_Measurements(void) {
 
   //Serial.print("----------------\n");
 
-    
+  
   // S0 = 0, S1 = 1
   // --------------
   digitalWrite(MUX_S0, LOW);
@@ -1404,7 +1445,7 @@ void Get_Analog_Measurements(void) {
   }
   ADC_ss_ac = ADC_ss_ac_scale*(ADC_sum/num_samples);
   if (ADC_ss_ac < 0) ADC_ss_ac = 0;
-  Serial.print("ADC_ss_ac = "); Serial.print(ADC_ss_ac,5); Serial.print("\n");
+  //Serial.print("ADC_ss_ac = "); Serial.print(ADC_ss_ac,5); Serial.print("\n");
   
   // Get channel 4 measurement
   ADC_sum = 0;
@@ -1462,7 +1503,7 @@ void Get_Analog_Measurements(void) {
   }
   ADC_ss_bike = ADC_ss_bike_scale*(ADC_sum/num_samples);
   if (ADC_ss_bike < 0) ADC_ss_bike = 0;
-  Serial.print("ADC_ss_bike = "); Serial.print(ADC_ss_bike,5); Serial.print("\n");
+  //Serial.print("ADC_ss_bike = "); Serial.print(ADC_ss_bike,5); Serial.print("\n");
   
   // Get channel 4 measurement
   ADC_sum = 0;
@@ -1525,7 +1566,7 @@ void Get_Analog_Measurements(void) {
   }
   ADC_ss_aux = ADC_ss_aux_scale*(ADC_sum/num_samples);
   if (ADC_ss_aux < 0) ADC_ss_aux = 0;
-  Serial.print("ADC_ss_aux = "); Serial.print(ADC_ss_aux,5); Serial.print("\n");
+  //Serial.print("ADC_ss_aux = "); Serial.print(ADC_ss_aux,5); Serial.print("\n");
   
   // Get channel 4 measurement
   ADC_sum = 0;
@@ -1538,7 +1579,8 @@ void Get_Analog_Measurements(void) {
   if (ADC_cc_pot < 0) ADC_cc_pot = 0;
   //Serial.print("ADC_cc_pot = "); Serial.print(ADC_cc_pot,5); Serial.print("\n");
 
-  Serial.print("================\n");
+  //Serial.print("================\n");
+ 
 } // Get_Analog_Measurements
 
 
@@ -1546,8 +1588,25 @@ void Calculate_Power_Measurements(void) {
   // Copy voltage values for shared bus node
   P3_sys_volt = P2_bus_volt;
   P4_ac_volt = P2_bus_volt;
+  P5_dc_volt = P2_bus_volt;
   P7_bat_volt = P2_bus_volt;
 
+  // If currents are below 150mA, set measurments to 0A
+  /*
+  if (P1_aux_curr < 0.15)
+    P1_aux_curr = 0;
+  if (P2_bus_curr < 0.15)
+    P2_bus_curr = 0;
+  if (P3_sys_curr < 0.15)
+    P3_sys_curr = 0;
+  if (P4_ac_curr < 0.15)
+    P4_ac_curr = 0;
+  if (P5_dc_curr < 0.15)
+    P5_dc_curr = 0;
+  if (P6_in_curr < 0.15)
+    P6_in_curr = 0;
+  */
+  
   // Calculate battery net current based on KCL
   P7_bat_curr = P2_bus_curr - P3_sys_curr - P4_ac_curr - P5_dc_curr;
 
@@ -1703,42 +1762,57 @@ void Update_SS_Status(void)
 } // Update_SS_Status();
 
 void Update_CC_Status(void) {
+  float cc_curr_in_max;
+  float cc_volt_out;
+
+  // Monitor bus or auxiliary lines depending on load selector position
+   if (ls_mode == LS_BAT)
+    cc_volt_out = P2_bus_volt;
+  else if (ls_mode == LS_AUX)
+    cc_volt_out = P1_aux_volt;
+
+  // Adjust max input current based on source selected
+  if (ss_source == SS_AC)
+    cc_curr_in_max = cc_curr_in_max_ac;
+  else
+    cc_curr_in_max = cc_curr_in_max_other;
+
   // OFF Mode
   if (cc_mode == CC_OFF) {
     bat_mode = BAT_NOT_CHARGING;
     cc_duty_cycle = 0;
-    analogWrite(PWM_CC, cc_duty_cycle);
   }
   // BAT Mode
   else if (cc_mode == CC_BAT) {
+    //bat_mode = BAT_FLOAT;
     if (bat_mode == BAT_NOT_CHARGING) bat_mode = BAT_CHARGING_CC;
     if (bat_mode ==  BAT_CHARGING_CC) {
       // Change mode if max charging voltage reached
-      if (P2_bus_volt > cc_volt_cycle_upper) {
+      if (cc_volt_out > cc_volt_cycle_upper) {
         bat_mode = BAT_CHARGING_CV;
         cc_duty_cycle--;
       }
       // Otherwise regulate voltage and current
       else if (P6_in_curr > cc_curr_in_max) cc_duty_cycle--;
-      else if (P2_bus_curr > cc_curr_cycle_max) cc_duty_cycle--;
-      else if (P2_bus_curr < cc_curr_cycle_max - 0.05) cc_duty_cycle++;
+      else if (P7_bat_curr > cc_curr_cycle_max) cc_duty_cycle--;
+      else if (P7_bat_curr < cc_curr_cycle_max - 0.25) cc_duty_cycle++;
     }
     else if (bat_mode ==  BAT_CHARGING_CV) {
       // Change mode if current falls below dropout value
-      if (P2_bus_curr < cc_curr_cycle_min) {
-        bat_mode = BAT_STANDBY;
+      if (P7_bat_curr < cc_curr_cycle_min) {
+        bat_mode = BAT_FLOAT;
         cc_duty_cycle--;
       }
       // Otherwise regulate voltage and current
       else if (P6_in_curr > cc_curr_in_max) cc_duty_cycle--;
-      else if (P2_bus_volt > cc_volt_cycle_upper) cc_duty_cycle--;
-      else if (P2_bus_volt < cc_volt_cycle_lower) cc_duty_cycle++;
+      else if (cc_volt_out > cc_volt_cycle_upper) cc_duty_cycle--;
+      else if (cc_volt_out < cc_volt_cycle_lower) cc_duty_cycle++;
     }
-    else if (bat_mode ==  BAT_STANDBY) {
+    else if (bat_mode ==  BAT_FLOAT) {
       // Regulate voltage and current
       if (P6_in_curr > cc_curr_in_max) cc_duty_cycle--;
-      else if (P2_bus_volt > cc_volt_standby_upper) cc_duty_cycle--;
-      else if (P2_bus_volt < cc_volt_standby_lower) cc_duty_cycle++;
+      else if (cc_volt_out > cc_volt_float_upper) cc_duty_cycle--;
+      else if (cc_volt_out < cc_volt_float_lower) cc_duty_cycle++;
     }
   }
   // OTHER Modes
@@ -1748,16 +1822,16 @@ void Update_CC_Status(void) {
       bat_mode = BAT_NOT_CHARGING;
       if (P2_bus_curr > cc_curr_out_max) cc_duty_cycle--;
       else if (P6_in_curr > cc_curr_in_max) cc_duty_cycle--;
-      else if (P2_bus_volt > (cc_volt_high+0.1)) cc_duty_cycle--;
-      else if (P2_bus_volt < (cc_volt_high-0.1)) cc_duty_cycle++;
+      else if (cc_volt_out > (cc_volt_high+0.1)) cc_duty_cycle--;
+      else if (cc_volt_out < (cc_volt_high-0.1)) cc_duty_cycle++;
     }
     // LOW Voltage Regulation Mode
     if (cc_mode == CC_LOW) {
       bat_mode = BAT_NOT_CHARGING;  
       if (P2_bus_curr > cc_curr_out_max) cc_duty_cycle--;
       else if (P6_in_curr > cc_curr_in_max) cc_duty_cycle--;
-      else if (P2_bus_volt > (cc_volt_low+0.1)) cc_duty_cycle--;
-      else if (P2_bus_volt < (cc_volt_low-0.1)) cc_duty_cycle++;
+      else if (cc_volt_out > (cc_volt_low+0.1)) cc_duty_cycle--;
+      else if (cc_volt_out < (cc_volt_low-0.1)) cc_duty_cycle++;
     }
     // FINE Adjustment Mode
     if (cc_mode == CC_FINE) {
@@ -1780,38 +1854,4 @@ void Update_CC_Status(void) {
 
   }
   analogWrite(PWM_CC, cc_duty_cycle);
-
-/*
-cc_mode
-bat_mode
-  // Charge controller  
-#define CC_OFF  "off "
-#define CC_BAT  "bat "
-#define CC_HIGH "high"
-#define CC_LOW  "low "
-#define CC_FINE "fine"
-#define CC_CRSE "crse"
-// Load selector
-#define LS_OFF  "off "
-#define LS_BAT  "bat "
-#define LS_AUX  "aux "
-// Alternator controller
-#define AC_OFF  "off "
-#define AC_ON   "on  "
-// Battery states
-#define BAT_NOT_CHARGING "not "
-#define BAT_CHARGING_CC  "cc  "
-#define BAT_CHARGING_CV  "cv  "
-#define BAT_STANDBY      "stby"
-
-const float cc_volt_cycle_upper = 14.8; // Charging voltage upper bound
-const float cc_volt_cycle_lower = 14.6; // Charging voltage lower bound
-const float cc_volt_standby_upper = 13.8; // Standby voltage upper bound
-const float cc_volt_standby_lower = 13.6; // Standby voltage upper bound
-const float cc_curr_cycle_max = 1; // Max charging current, units of amps
-const float cc_curr_cycle_min = 0.1; // Min charging current before considered fully charged, units of amps
-const float cc_volt_high = 14; // High mode voltage, units of volts
-const float cc_volt_low = 13.5; // Low mode voltage, units of volts
-*/
 } // Update_CC_Status
-
